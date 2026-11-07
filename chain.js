@@ -8,6 +8,7 @@ import { b58decode } from './auth.js';
 export const SYSTEM_PROGRAM = '11111111111111111111111111111111';
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 export const TOKEN_2022 = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 
 // Pool authorities that hold reserves for many pools (not regular wallets).
 // Pools whose own account holds the reserves (pump.fun, PumpSwap, Orca, Meteora DLMM)
@@ -65,6 +66,22 @@ export function parseTrades(tx, mint) {
     const amt = info.amount || (info.tokenAmount && info.tokenAmount.amount);
     if (owner && /^\d+$/.test(String(amt))) minted.set(owner, (minted.get(owner) || 0n) + BigInt(amt));
   }
+  // SOL moved by each wallet (native + wrapped). Tokens and SOL moving the same direction
+  // means adding or removing liquidity, not trading.
+  const fee = BigInt(tx.meta.fee || 0);
+  const solDelta = owner => {
+    const i = keys.findIndex(k => k.pubkey === owner);
+    let d = 0n;
+    if (i >= 0 && tx.meta.preBalances && tx.meta.postBalances && tx.meta.preBalances[i] != null) {
+      d = BigInt(tx.meta.postBalances[i]) - BigInt(tx.meta.preBalances[i]);
+      if (i === 0) d += fee;
+    }
+    for (const [list, sign] of [[tx.meta.preTokenBalances, -1n], [tx.meta.postTokenBalances, 1n]]) {
+      for (const b of list || []) if (b.mint === WSOL_MINT && b.owner === owner && /^\d+$/.test(String(b.uiTokenAmount && b.uiTokenAmount.amount))) d += sign * BigInt(b.uiTokenAmount.amount);
+    }
+    return d;
+  };
+  const DUST = 5000000n; // 0.005 SOL: ignores rent and tips
   const out = [];
   const base = { slot: tx.slot, time: tx.blockTime, sig: tx.transaction.signatures[0] };
   for (const [owner, total] of delta) {
@@ -72,7 +89,10 @@ export function parseTrades(tx, mint) {
     const m = minted.get(owner) || 0n;
     if (m > 0n) out.push({ wallet: owner, side: 'mint', amount: Number(m), ...base });
     const d = total - m;
-    if (d !== 0n) out.push({ wallet: owner, side: d > 0n ? 'buy' : 'sell', amount: Number(d > 0n ? d : -d), ...base });
+    if (d === 0n) continue;
+    const sol = solDelta(owner);
+    const lp = (d > 0n && sol > DUST) || (d < 0n && sol < -DUST);
+    out.push({ wallet: owner, side: lp ? 'lp' : d > 0n ? 'buy' : 'sell', amount: Number(d > 0n ? d : -d), ...base });
   }
   return out;
 }

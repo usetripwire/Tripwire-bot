@@ -349,6 +349,15 @@ await test('Holders: an off-curve owner (bonding-curve reserve) counts as a prog
   const k = await ownerKinds([reserve, whale.address]);
   assert.equal(k.get(reserve), 'program'); assert.equal(k.get(whale.address), 'wallet');
 });
+await test('Removing liquidity (tokens AND SOL come back) is not a buy', () => {
+  const tx = { slot: 1, blockTime: 1, meta: { err: null, fee: 5000, preBalances: [1e9, 0], postBalances: [3e9, 0],
+    preTokenBalances: [{ accountIndex: 1, mint: MINT, owner: 'LPer', uiTokenAmount: { amount: '0' } }],
+    postTokenBalances: [{ accountIndex: 1, mint: MINT, owner: 'LPer', uiTokenAmount: { amount: '500' } }], innerInstructions: [] },
+    transaction: { signatures: ['lp1'], message: { accountKeys: [{ pubkey: 'LPer', signer: true }, { pubkey: 'LPerATA', signer: false }], instructions: [] } } };
+  assert.equal(parseTrades(tx, MINT)[0].side, 'lp');
+  const buy = JSON.parse(JSON.stringify(tx)); buy.meta.postBalances = [0.5e9, 0];
+  assert.equal(parseTrades(buy, MINT)[0].side, 'buy');
+});
 await test('Minting supply to yourself is not counted as a buy', () => {
   const tx = { slot: 1, blockTime: 1, meta: { err: null,
     preTokenBalances: [{ accountIndex: 1, mint: MINT, owner: 'Minter', uiTokenAmount: { amount: '0' } }],

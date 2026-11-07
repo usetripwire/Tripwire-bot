@@ -105,7 +105,7 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
   const earlyWallets = [...firstSlot.keys()];
   if (!earlyWallets.includes(deployer)) earlyWallets.unshift(deployer);
   const { groupOf } = clusters(earlyWallets, funders, deployer);
-  const share = raw => (raw / supply) * 100;
+  const share = raw => Math.min(100, (raw / supply) * 100);
   const held = w => holdings.get(w) || 0;
 
   // Bundle: launch-block buyers + any early buyers sharing funding + the deployer's cluster
