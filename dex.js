@@ -1,3 +1,4 @@
+import { log } from './util.js';
 // DexScreener public API (no key needed).
 const BASE = 'https://api.dexscreener.com';
 
@@ -16,15 +17,22 @@ export async function pairsFor(mint) {
   return rankPairs(pairs);
 }
 
-// Deepest pool first, but never trust a pool that claims more liquidity than the whole coin is worth
-// (bad indexer data or a fake pool set up to look safe). Market cap comes from the busiest pool.
+// Deepest pool first, but never trust a pool that claims more liquidity than the coin is worth by its
+// own price, or whose price puts the coin at 20x+ the market cap every other pool shows
+// (bad indexer data or a fake pool set up to look safe).
 export function rankPairs(pairs) {
-  const vol = p => (p.volume && p.volume.h24) || 0;
-  const busiest = [...pairs].sort((a, b) => vol(b) - vol(a))[0];
-  const ref = busiest ? busiest.marketCap || busiest.fdv || 0 : 0;
-  for (const p of pairs) p._suspect = !!(ref && liq(p) > ref * 1.05 && pairs.length > 1);
+  const mc = p => p.marketCap || p.fdv || 0;
+  const median = xs => { const a = xs.filter(x => x > 0).sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : 0; };
+  for (const p of pairs) {
+    const own = mc(p);
+    const others = median(pairs.filter(q => q !== p).map(mc));
+    p._suspect = pairs.length > 1 && liq(p) > 0 && ((own > 0 && liq(p) > own * 1.05) || (others > 0 && own > others * 20 && liq(p) > others));
+  }
+  const bad = pairs.filter(p => p._suspect);
+  if (bad.length) log('ignored pools', JSON.stringify(bad.map(p => ({ dex: p.dexId, pool: p.pairAddress, liq: liq(p), mcap: mc(p), quote: p.quoteToken && p.quoteToken.symbol }))));
   return pairs.sort((a, b) => (a._suspect - b._suspect) || (liq(b) - liq(a)));
 }
+
 
 // Deepest-pool liquidity for many mints (30 per request). Returns Map mint -> liquidity USD.
 export async function liquidityFor(mints) {

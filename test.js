@@ -464,6 +464,12 @@ await test('Pool claiming more liquidity than the market cap is not trusted', as
   assert.equal(pairs[0].pairAddress, 'REAL');
   const r = exitWire(pairs);
   assert.match(r.items[0], /\$400(\.0)?K/); assert.ok(r.items.some(x => /Ignored a raydium pool/.test(x)));
+  // A real deep pool next to a busy tiny pool is kept
+  const ok = rankPairs([
+    { dexId: 'raydium', pairAddress: 'DEEP', liquidity: { usd: 137800 }, volume: { h24: 50 }, marketCap: 2e6 },
+    { dexId: 'meteora', pairAddress: 'TINY', liquidity: { usd: 391 }, volume: { h24: 9000 }, marketCap: 2e6 }
+  ]);
+  assert.equal(ok[0].pairAddress, 'DEEP'); assert.ok(!ok.some(p => p._suspect));
 });
 
 for (const [s, n] of results) console.log(s, n);
