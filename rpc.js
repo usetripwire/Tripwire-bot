@@ -7,7 +7,7 @@ const limit = createLimiter(cfg.scan.rpcConcurrency);
 let nextId = 1;
 let nextAt = 0;
 let batchOk = cfg.scan.rpcBatch;
-export const stats = { requests: 0, calls: 0, throttled: 0 };
+export const stats = { requests: 0, calls: 0, throttled: 0, itemErrors: 0, lastError: '' };
 const isThrottle = e => !!e && (e.code === 429 || e.code === -32429 || /rate|limit|too many/i.test(e.message || ''));
 
 // Reserve `items` request slots at RPC_RPS per second; returns how long to wait.
@@ -48,7 +48,7 @@ export async function rpc(method, params) {
 
 const one = createLimiter(cfg.scan.rpcConcurrency);
 async function singles(calls) {
-  return Promise.all(calls.map(([m, p]) => one(() => rpc(m, p).catch(() => null))));
+  return Promise.all(calls.map(([m, p]) => one(() => rpc(m, p).catch(e => { stats.itemErrors++; stats.lastError = String(e.message).slice(0, 160); return null; }))));
 }
 
 // calls: [[method, params], ...] -> results in the same order (null for failed items)
@@ -73,6 +73,7 @@ export async function rpcBatch(calls, chunk = cfg.scan.batchSize) {
       if (!r || r.id == null) continue;
       if (!r.error) out[r.id] = r.result;
       else if (isThrottle(r.error)) retry.push(r.id);
+      else { stats.itemErrors++; stats.lastError = String(r.error.message || r.error.code).slice(0, 160); }
     }
     // Items the provider turned away for rate limits get retried one by one, slower.
     if (retry.length) {

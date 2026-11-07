@@ -1,6 +1,6 @@
 // Full scan: runs every wire for one mint and returns a JSON-friendly result.
 import { cfg } from './config.js';
-import { rpc, rpcBatch, sigsFor, getTxs } from './rpc.js';
+import { rpc, rpcBatch, sigsFor, getTxs, stats } from './rpc.js';
 import { pairsFor, liquidityFor } from './dex.js';
 import { TOKEN_PROGRAM, TOKEN_2022, reconstructLaunch, fundersFor, holdingsOf, launchesBy, ownerKinds, parseTrades } from './chain.js';
 import { authorityWire, holdersWire, exitWire, launchWires, flowWires } from './wires.js';
@@ -101,18 +101,36 @@ async function runScan(mint) {
     }
     // Read recent pool transactions; go further back if the coin trades slowly.
     // Busy pools are full of failed bot transactions, so only successful ones count toward the budget.
-    let trades = [], before, read = 0, pagesRead = 0;
-    while (read < cfg.scan.recentTxsMax && pagesRead < 15) {
-      const page = await sigsFor(pair.pairAddress, { limit: 200, before });
-      pagesRead++;
-      if (!page.length) break;
-      before = page[page.length - 1].signature;
-      const ok = page.filter(s => !s.err).slice(0, cfg.scan.recentTxsMax - read);
-      read += ok.length;
-      const txs = await getTxs(ok.map(s => s.signature));
-      trades = trades.concat(txs.flatMap(tx => parseTrades(tx, mint)));
-      if (trades.length >= cfg.t.lowFlowTrades * 3 || page.length < 200) break;
+    // Read the pool first; if it yields few trades, also read the coin's own history (pump.fun and
+    // most pools include the coin's mint in every trade).
+    const diag = { pool: pair.pairAddress, sigs: 0, ok: 0, empty: 0, errorsBefore: stats.itemErrors };
+    const readFrom = async (address, budget) => {
+      let found = [], before, read = 0, pagesRead = 0;
+      while (read < budget && pagesRead < 15) {
+        const page = await sigsFor(address, { limit: 200, before });
+        pagesRead++;
+        diag.sigs += page.length;
+        if (!page.length) break;
+        before = page[page.length - 1].signature;
+        const ok = page.filter(s => !s.err).slice(0, budget - read);
+        read += ok.length;
+        diag.ok += ok.length;
+        const txs = await getTxs(ok.map(s => s.signature));
+        diag.empty += txs.filter(t => !t).length;
+        found = found.concat(txs.flatMap(tx => parseTrades(tx, mint)));
+        if (found.length >= cfg.t.lowFlowTrades * 3 || page.length < 200) break;
+      }
+      return found;
+    };
+    let trades = await readFrom(pair.pairAddress, cfg.scan.recentTxsMax);
+    diag.poolTrades = trades.length;
+    if (trades.length < cfg.t.lowFlowTrades) {
+      const seenSig = new Set(trades.map(t => t.sig + t.wallet));
+      for (const t of await readFrom(mint, cfg.scan.recentTxsMax)) if (!seenSig.has(t.sig + t.wallet)) { seenSig.add(t.sig + t.wallet); trades.push(t); }
     }
+    diag.trades = trades.length;
+    diag.itemErrors = stats.itemErrors - diag.errorsBefore;
+    log('trade read', mint, JSON.stringify({ ...diag, errorsBefore: undefined, lastError: diag.itemErrors ? stats.lastError : undefined }));
     // Check the busiest wallets' overall transaction rate (1000 txs in under a day = automated)
     const vol = new Map();
     for (const t of trades) vol.set(t.wallet, (vol.get(t.wallet) || 0) + t.amount);
