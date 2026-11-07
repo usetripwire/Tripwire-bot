@@ -1,6 +1,16 @@
 # Tripwire scan server
 
-The engine behind the full scan on [usetripwire.com](https://usetripwire.com). The website calls `GET /api/scan?ca=<mint>` and shows all eight wires. Runs on Node 20+ with no dependencies.
+The engine behind [usetripwire.com](https://usetripwire.com): the full eight-wire scan, and **Tripwire Radar**, the holder feed. Runs on Node 20+ with no dependencies.
+
+## Tripwire Radar
+- Every 30 seconds it checks the pump.fun migration account (`RADAR_WATCH_ACCOUNT`) for new graduations.
+- After 2 minutes of trading, coins with at least $15K of pool liquidity get the full scan, up to 12 an hour (`RADAR_MAX_SCANS_PER_HOUR`).
+- Results are saved to `data/radar.json` on the Railway volume.
+- **Holders of 100,000+ $TRIP** (`RADAR_MIN_HOLD`) sign in with their wallet by signing a free message, then see every result live. Everyone else sees the 3 latest *clean* results, 15 minutes late.
+- Before launch, `TRIP_MINT` is empty, so only wallets in `RADAR_ALLOW_WALLETS` get the live feed.
+- The logs print an hourly summary (`Radar last hour: …`) so you can see it working.
+
+Endpoints: `GET /api/radar/feed`, `GET /api/radar/nonce?wallet=`, `POST /api/radar/session`.
 
 ## The eight wires
 
@@ -41,7 +51,9 @@ npm start                       # run the API locally
 A full scan makes a few hundred RPC calls. Results are cached for 10 minutes, and funding lookups for a week. The Helius free plan is fine for testing, but expect a paid plan once real traffic arrives.
 
 ## Files
-- `index.js`: starts the API
+- `index.js`: starts the API and Radar
+- `radar.js`: graduation finder, scan queue and feed
+- `auth.js`: wallet sign-in and the $TRIP balance check
 - `server.js`: the `/api/scan` and `/health` endpoints, with CORS and per-IP rate limits
 - `scan.js`: runs every wire for one mint
 - `wires.js`: the eight checks and their thresholds

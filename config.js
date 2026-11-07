@@ -30,6 +30,7 @@ export const cfg = {
 
   limits: {
     apiPerIpPerMinute: num('API_PER_IP_PER_MINUTE', 6),
+    feedPerIpPerMinute: num('FEED_PER_IP_PER_MINUTE', 30),
     concurrentScans: num('CONCURRENT_SCANS', 3)
   },
 
@@ -44,6 +45,25 @@ export const cfg = {
     agentWalletChecks: num('AGENT_WALLET_CHECKS', 12),
     rpcConcurrency: num('RPC_CONCURRENCY', 6),
     cacheMinutes: num('CACHE_MINUTES', 10)
+  },
+
+  // Tripwire Radar: auto-scans pump.fun graduations; real-time feed for $TRIP holders
+  radar: {
+    enabled: bool('RADAR_ENABLED', true),
+    tripMint: env('TRIP_MINT', ''),                       // $TRIP mint address (empty until launch)
+    minHold: num('RADAR_MIN_HOLD', 100000),              // $TRIP needed for real-time access
+    allowWallets: env('RADAR_ALLOW_WALLETS', '').split(',').map(s => s.trim()).filter(Boolean), // testers
+    sessionSecret: env('SESSION_SECRET', ''),
+    watchAccount: env('RADAR_WATCH_ACCOUNT', '39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg'), // pump.fun migration account
+    logMatch: env('RADAR_LOG_MATCH', 'migrate'),        // log text that marks a graduation
+    pollSeconds: num('RADAR_POLL_SECONDS', 30),
+    scanDelaySec: num('RADAR_SCAN_DELAY_SEC', 120),     // wait for some trading before scanning
+    maxScansPerHour: num('RADAR_MAX_SCANS_PER_HOUR', 12),
+    minLiqUsd: num('RADAR_MIN_LIQ_USD', 15000),         // skip coins with less pool liquidity
+    publicDelayMin: num('RADAR_PUBLIC_DELAY_MIN', 15),
+    publicLimit: num('RADAR_PUBLIC_LIMIT', 3),
+    keep: num('RADAR_KEEP', 300),
+    storePath: path.resolve(root, env('RADAR_STORE_PATH', './data/radar.json'))
   },
 
   // Trip thresholds (percent of supply unless noted)

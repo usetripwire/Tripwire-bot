@@ -26,6 +26,7 @@ export class TTLCache {
     return e.v;
   }
   has(k) { return this.get(k) !== undefined; }
+  delete(k) { this.map.delete(k); }
   set(k, v, ttlMs) {
     if (this.map.size >= this.max) this.map.delete(this.map.keys().next().value);
     this.map.set(k, { v, exp: Date.now() + (ttlMs || this.ttl) });

@@ -7,7 +7,7 @@ import fs from 'node:fs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-'));
 Object.assign(process.env, {
-  RPC_URL: 'https://rpc.test', SITE_URL: 'https://tripwirescan.com',  ALLOWED_ORIGINS: 'https://tripwirescan.com'
+  RPC_URL: 'https://rpc.test', TRIP_MINT: 'TripMint111', RADAR_WATCH_ACCOUNT: 'MigrAcct', RADAR_SCAN_DELAY_SEC: '0', RADAR_MIN_LIQ_USD: '10000', RADAR_PUBLIC_DELAY_MIN: '15', RADAR_STORE_PATH: path.join(tmp, 'radar.json'), SESSION_SECRET: 'test-secret', SITE_URL: 'https://tripwirescan.com',  ALLOWED_ORIGINS: 'https://tripwirescan.com'
 });
 
 /* ---------- fixture world ---------- */
@@ -20,6 +20,7 @@ const T0 = Math.floor(Date.now() / 1000) - 3 * 86400;
 const txs = new Map();
 const sigLists = new Map(); // address -> [{signature, blockTime, err}] newest first
 const holdings = new Map();
+const tripBal = new Map();
 const pushSig = (addr, sig, time) => { if (!sigLists.has(addr)) sigLists.set(addr, []); sigLists.get(addr).push({ signature: sig, blockTime: time, err: null }); };
 
 function mkTx({ sig, slot, time, payer, changes, inner = [], extraSigners = [] }) {
@@ -112,6 +113,10 @@ function rpcAnswer({ method, params }) {
     }
     case 'getTransaction': return txs.get(a) || null;
     case 'getTokenAccountsByOwner': {
+      if (opts && opts.mint === 'TripMint111') {
+        const ui = tripBal.get(a) || 0;
+        return { value: ui ? [{ account: { data: { parsed: { info: { tokenAmount: { amount: String(ui * 1e6), uiAmountString: String(ui) } } } } } }] : [] };
+      }
       const amt = holdings.get(a) || 0;
       return { value: amt ? [{ account: { data: { parsed: { info: { tokenAmount: { amount: String(amt) } } } } } }] : [] };
     }
@@ -185,6 +190,90 @@ await test('API returns the full scan with CORS for the site', async () => {
   assert.equal(res.headers.get('access-control-allow-origin'), 'https://tripwirescan.com');
   const bad = await fetch(`http://127.0.0.1:${port}/api/scan?ca=nope`);
   assert.equal(bad.status, 400);
+  server.close();
+});
+
+
+/* ---------- Radar + wallet sign-in ---------- */
+const crypto = await import('node:crypto');
+const { b58encode, b58decode, issueNonce, createSession } = await import('./auth.js');
+const radar = await import('./radar.js');
+function newWallet() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  const raw = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32);
+  return { address: b58encode(raw), sign: msg => crypto.sign(null, Buffer.from(msg, 'utf8'), privateKey).toString('base64') };
+}
+const whale = newWallet(), minnow = newWallet();
+tripBal.set(whale.address, 150000);
+tripBal.set(minnow.address, 50000);
+
+await test('base58 encode/decode round-trips', () => {
+  const buf = crypto.randomBytes(32);
+  assert.deepEqual(b58decode(b58encode(buf)), buf);
+});
+let whaleSession;
+await test('Holder with 150k $TRIP signs in and unlocks Radar', async () => {
+  const { nonce, message } = issueNonce(whale.address);
+  whaleSession = await createSession({ wallet: whale.address, nonce, signature: whale.sign(message) });
+  assert.equal(whaleSession.holder, true); assert.equal(whaleSession.balance, 150000); assert.ok(whaleSession.token);
+});
+await test('Wallet with 50k $TRIP signs in but stays locked', async () => {
+  const { nonce, message } = issueNonce(minnow.address);
+  const s = await createSession({ wallet: minnow.address, nonce, signature: minnow.sign(message) });
+  assert.equal(s.holder, false);
+});
+await test('A forged signature is rejected', async () => {
+  const { nonce, message } = issueNonce(whale.address);
+  await assert.rejects(createSession({ wallet: whale.address, nonce, signature: minnow.sign(message) }), e => e.code === 'bad_signature');
+});
+await test('A sign-in message can only be used once', async () => {
+  const { nonce, message } = issueNonce(whale.address);
+  const sig = whale.sign(message);
+  await createSession({ wallet: whale.address, nonce, signature: sig });
+  await assert.rejects(createSession({ wallet: whale.address, nonce, signature: sig }), e => e.code === 'expired');
+});
+
+// Graduation transaction on the migration account
+txs.set('migrate1', { slot: 9000, blockTime: now, meta: { err: null, logMessages: ['Program log: Instruction: Migrate'],
+  preTokenBalances: [], postTokenBalances: [{ mint: MINT, owner: POOL, uiTokenAmount: { amount: '1' } }, { mint: 'So11111111111111111111111111111111111111112', owner: POOL, uiTokenAmount: { amount: '1' } }, { mint: 'LpMint111', owner: 'X', uiTokenAmount: { amount: '1' } }] },
+  transaction: { signatures: ['migrate1'], message: { accountKeys: [{ pubkey: 'MigrAcct', signer: true }], instructions: [] } } });
+sigLists.set('MigrAcct', [{ signature: 'older', blockTime: now - 100, err: null }]);
+
+await test('Radar starts from "now" on first run (no backlog)', async () => {
+  radar._reset();
+  assert.equal(await radar.pollOnce(), 0);
+});
+await test('Radar spots a graduation and queues the coin', async () => {
+  sigLists.get('MigrAcct').unshift({ signature: 'migrate1', blockTime: now, err: null });
+  assert.equal(await radar.pollOnce(), 2); // the coin + its LP mint
+});
+await test('Radar scans the coin and skips the LP mint (no pool)', async () => {
+  await radar.processQueue();
+  const live = radar.feed({ holder: true });
+  assert.equal(live.mode, 'live'); assert.equal(live.entries.length, 1);
+  assert.equal(live.entries[0].mint, MINT); assert.equal(live.entries[0].trips, 4); assert.equal(live.entries[0].wires.length, 8);
+});
+await test('Non-holders get a delayed preview with only clean coins', () => {
+  const p = radar.feed({ holder: false });
+  assert.equal(p.mode, 'preview'); assert.equal(p.entries.length, 0); assert.equal(p.lockedCount, 1);
+  const later = radar.feed({ holder: false }, Date.now() + 20 * 60e3);
+  assert.equal(later.entries.length, 0, 'tripped coin never shown in preview');
+});
+
+await test('Radar API: sign in over HTTP and get the live feed', async () => {
+  const server = createServer();
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const n = await (await fetch(`${base}/api/radar/nonce?wallet=${whale.address}`)).json();
+  const sres = await fetch(`${base}/api/radar/session`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ wallet: whale.address, nonce: n.nonce, signature: whale.sign(n.message) }) });
+  const s = await sres.json();
+  assert.equal(sres.status, 200); assert.equal(s.holder, true);
+  const live = await (await fetch(`${base}/api/radar/feed`, { headers: { authorization: 'Bearer ' + s.token } })).json();
+  assert.equal(live.mode, 'live'); assert.equal(live.gate.holder, true); assert.equal(live.entries.length, 1);
+  const anon = await (await fetch(`${base}/api/radar/feed`)).json();
+  assert.equal(anon.mode, 'preview'); assert.equal(anon.gate.minHold, 100000);
+  const forged = await (await fetch(`${base}/api/radar/feed`, { headers: { authorization: 'Bearer ' + s.token.slice(0, -2) + 'xx' } })).json();
+  assert.equal(forged.mode, 'preview');
   server.close();
 });
 

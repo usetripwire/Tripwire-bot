@@ -1,5 +1,6 @@
 import { cfg } from './config.js';
 import { startServer } from './server.js';
+import { startRadar } from './radar.js';
 import { log } from './util.js';
 
 if (cfg.rpcUrl.includes('api.mainnet-beta.solana.com')) {
@@ -7,4 +8,6 @@ if (cfg.rpcUrl.includes('api.mainnet-beta.solana.com')) {
 }
 if (!cfg.allowedOrigins.length) log('WARNING: ALLOWED_ORIGINS is empty, so any website can call this API. Set it to your domain.');
 
+if (!cfg.radar.sessionSecret) log('WARNING: SESSION_SECRET is not set, so Radar sign-ins reset when the server restarts.');
 startServer();
+startRadar();
