@@ -349,6 +349,21 @@ await test('Holders: an off-curve owner (bonding-curve reserve) counts as a prog
   const k = await ownerKinds([reserve, whale.address]);
   assert.equal(k.get(reserve), 'program'); assert.equal(k.get(whale.address), 'wallet');
 });
+await test('Minting supply to yourself is not counted as a buy', () => {
+  const tx = { slot: 1, blockTime: 1, meta: { err: null,
+    preTokenBalances: [{ accountIndex: 1, mint: MINT, owner: 'Minter', uiTokenAmount: { amount: '0' } }],
+    postTokenBalances: [{ accountIndex: 1, mint: MINT, owner: 'Minter', uiTokenAmount: { amount: '900' } }],
+    innerInstructions: [{ index: 0, instructions: [{ program: 'spl-token', parsed: { type: 'mintTo', info: { mint: MINT, account: 'MinterATA', amount: '800' } } }] }] },
+    transaction: { signatures: ['m1'], message: { accountKeys: [{ pubkey: 'Minter', signer: true }, { pubkey: 'MinterATA', signer: false }], instructions: [] } } };
+  const t = parseTrades(tx, MINT);
+  assert.deepEqual(t.map(x => [x.side, x.amount]), [['mint', 800], ['buy', 100]]);
+});
+await test('A bundle that grabbed over half the supply trips even after dumping', async () => {
+  const { launchWires } = await import('./wires.js');
+  const S = 1e15, tr = (w, a) => ({ wallet: w, side: 'buy', amount: a, slot: 5, time: 1, sig: 's' + w });
+  const r = launchWires({ launch: { deployer: 'D', creationSlot: 5, creationTime: 1, trades: [tr('X1', 0.3 * S), tr('X2', 0.3 * S)] }, funders: new Map(), holdings: new Map(), supply: S, history: null, now: 2 });
+  assert.equal(r.bundleWire.tripped, true); assert.match(r.bundleWire.items.join(' '), /pump-and-dump/);
+});
 await test('Busy coin (2,500+ txs): launch rebuilt from its metadata account and launch blocks', async () => {
   const { reconstructLaunch } = await import('./chain.js');
   const BIG = 'BigMint9xKqWv7bRnZ3hJ5cD8fG2sA4LTrippump';

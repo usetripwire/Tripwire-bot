@@ -51,10 +51,28 @@ export function parseTrades(tx, mint) {
   };
   add(tx.meta.preTokenBalances, -1n);
   add(tx.meta.postTokenBalances, 1n);
+  // Tokens minted straight to a wallet are not a buy (e.g. a dev minting supply, then adding it to a pool).
+  const ownerOfAccount = new Map();
+  for (const b of [...(tx.meta.preTokenBalances || []), ...(tx.meta.postTokenBalances || [])]) {
+    if (b.mint === mint && b.owner && keys[b.accountIndex]) ownerOfAccount.set(keys[b.accountIndex].pubkey, b.owner);
+  }
+  const minted = new Map();
+  for (const ins of allInstructions(tx)) {
+    if (ins.program !== 'spl-token' || !ins.parsed || !/^mintTo(Checked)?$/.test(ins.parsed.type)) continue;
+    const info = ins.parsed.info || {};
+    if (info.mint && info.mint !== mint) continue;
+    const owner = ownerOfAccount.get(info.account);
+    const amt = info.amount || (info.tokenAmount && info.tokenAmount.amount);
+    if (owner && /^\d+$/.test(String(amt))) minted.set(owner, (minted.get(owner) || 0n) + BigInt(amt));
+  }
   const out = [];
-  for (const [owner, d] of delta) {
-    if (d === 0n || !signers.has(owner)) continue;
-    out.push({ wallet: owner, side: d > 0n ? 'buy' : 'sell', amount: Number(d > 0n ? d : -d), slot: tx.slot, time: tx.blockTime, sig: tx.transaction.signatures[0] });
+  const base = { slot: tx.slot, time: tx.blockTime, sig: tx.transaction.signatures[0] };
+  for (const [owner, total] of delta) {
+    if (total === 0n || !signers.has(owner)) continue;
+    const m = minted.get(owner) || 0n;
+    if (m > 0n) out.push({ wallet: owner, side: 'mint', amount: Number(m), ...base });
+    const d = total - m;
+    if (d !== 0n) out.push({ wallet: owner, side: d > 0n ? 'buy' : 'sell', amount: Number(d > 0n ? d : -d), ...base });
   }
   return out;
 }
@@ -105,7 +123,7 @@ async function launchViaMetadata(mint) {
   if (!creation) return null;
   const slots = [];
   for (let s = creation.slot; s <= creation.slot + cfg.scan.sniperSlots; s++) slots.push(s);
-  const blocks = await rpcBatch(slots.map(s => ['getBlock', [s, { encoding: 'jsonParsed', transactionDetails: 'accounts', maxSupportedTransactionVersion: 0, rewards: false, commitment: 'confirmed' }]]), 1);
+  const blocks = await rpcBatch(slots.map(s => ['getBlock', [s, { encoding: 'jsonParsed', transactionDetails: 'accounts', maxSupportedTransactionVersion: 1, rewards: false, commitment: 'confirmed' }]]), 1);
   const seenSig = new Set();
   const trades = [];
   const add = t => { if (!seenSig.has(t.sig + t.wallet)) { seenSig.add(t.sig + t.wallet); trades.push(t); } };

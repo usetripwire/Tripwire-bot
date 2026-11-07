@@ -5,6 +5,7 @@ import { TOKEN_2022 } from './chain.js';
 import { pct, usd, short, sum } from './util.js';
 
 const T = cfg.t;
+const about = x => (x > 0 && x < 1 ? 'Under 1%' : `About ${pct(x, 0)}`);
 const na = (key, name, why) => ({ key, name, na: true, tripped: false, items: [why], brief: 'n/a' });
 
 /* ---------------- Authority ---------------- */
@@ -44,8 +45,8 @@ export function holdersWire(largest, owners, kinds, supply, poolSet) {
   const pooled = sum(rows.filter(r => r.kind === 'pool').map(r => r.share));
   const program = sum(rows.filter(r => r.kind === 'program').map(r => r.share));
   const items = [`Top 10 wallets hold ${pct(top10)} of supply (pools and programs excluded).`, `Largest single wallet holds ${pct(top1)}.`];
-  if (pooled > 0) items.push(`${pct(pooled)} of supply sits in trading pools.`);
-  if (program > 0) items.push(`${pct(program)} is held by programs (bonding curves, pool vaults or lockers), not people.`);
+  if (pooled >= 0.05) items.push(`${pct(pooled)} of supply sits in trading pools.`);
+  if (program >= 0.05) items.push(`${pct(program)} is held by programs (bonding curves, pool vaults or lockers), not people.`);
   return { key: 'holders', name: 'Holders', tripped: top10 > T.top10 || top1 > T.single, items, brief: `top10 ${pct(top10, 0)}`, rows };
 }
 
@@ -126,7 +127,9 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
       `They still hold ${pct(bundleHeld)}.`
     ];
     if (devFunded) items.push(`${devFunded} of them were funded directly by the deployer.`);
-    bundleWire = { key: 'bundle', name: 'Bundle', tripped: bundleHeld >= T.bundleHeld || (bundleBought >= T.bundleBought && bundleHeld >= T.bundleHeld / 2), items, brief: `holds ${pct(bundleHeld, 0)}` };
+    const major = bundleBought >= T.bundleMajor;
+    if (major) items.push(bundleHeld < 1 ? 'A bundle that grabbed over half the supply at launch, then sold out, is a classic pump-and-dump pattern.' : 'A bundle holding this much can move the price whenever it wants.');
+    bundleWire = { key: 'bundle', name: 'Bundle', tripped: major || bundleHeld >= T.bundleHeld || (bundleBought >= T.bundleBought && bundleHeld >= T.bundleHeld / 2), items, brief: major ? `grabbed ${pct(bundleBought, 0)}` : `holds ${pct(bundleHeld, 0)}` };
   }
 
   // Sniper: outside wallets that bought within the first few blocks
@@ -152,6 +155,8 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
   const devBought = bought.get(deployer) || 0;
   const devHeld = share(held(deployer));
   const items = [`Deployer ${short(deployer)} holds ${pct(devHeld)} of supply now.`];
+  const devMinted = sum(trades.filter(t => t.side === 'mint' && t.wallet === deployer).map(t => t.amount));
+  if (devMinted > 0) items.push(`Dev minted ${pct(share(devMinted))} of supply straight to their own wallet at launch (not a market buy).`);
   if (devBought > 0) items.push(held(deployer) < devBought * 0.5 ? `Dev has sold most of their launch buy (${pct(share(devBought))} of supply).` : `Dev still holds most of their launch buy.`);
   let tripped = devHeld >= T.devHeld;
   let brief = `holds ${pct(devHeld, 0)}`;
@@ -215,7 +220,7 @@ export function flowWires({ trades, decimals, priceUsd, fastWallets }) {
   const agentShare = (agentVol / total) * 100;
   const agentWire = {
     key: 'agent', name: 'Agent', tripped: agentShare >= T.agentShare,
-    items: [agents.length ? `About ${pct(agentShare, 0)} of recent volume came from ${agents.length === 1 ? '1 wallet that trades like a bot' : agents.length + ' wallets that trade like bots'}.` : `No bot-like trading in the last ${nt} trades.`, weak],
+    items: [agents.length ? `${about(agentShare)} of recent volume came from ${agents.length === 1 ? '1 wallet that trades like a bot' : agents.length + ' wallets that trade like bots'}.` : `No bot-like trading in the last ${nt} trades.`, weak],
     brief: `~${pct(agentShare, 0)}`
   };
 
@@ -231,7 +236,7 @@ export function flowWires({ trades, decimals, priceUsd, fastWallets }) {
   const washShare = (washVol / total) * 100;
   const washWire = {
     key: 'wash', name: 'Wash', tripped: washShare >= T.washShare,
-    items: [washers.length ? `About ${pct(washShare, 0)} of recent volume is ${washers.length === 1 ? '1 wallet' : washers.length + ' wallets'} buying and selling the same size back and forth.` : `No wash trading in the last ${nt} trades.`, weak],
+    items: [washers.length ? `${about(washShare)} of recent volume is ${washers.length === 1 ? '1 wallet' : washers.length + ' wallets'} buying and selling the same size back and forth.` : `No wash trading in the last ${nt} trades.`, weak],
     brief: `~${pct(washShare, 0)} of vol`
   };
   return { agentWire, washWire };

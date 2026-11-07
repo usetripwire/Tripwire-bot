@@ -89,4 +89,4 @@ export const sigsFor = (address, opts = {}) =>
   rpc('getSignaturesForAddress', [address, { limit: opts.limit || 1000, before: opts.before, commitment: 'confirmed' }]);
 
 export const getTxs = sigs =>
-  rpcBatch(sigs.map(s => ['getTransaction', [s, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }]]));
+  rpcBatch(sigs.map(s => ['getTransaction', [s, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 1, commitment: 'confirmed' }]]));
