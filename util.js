@@ -35,7 +35,11 @@ export class TTLCache {
 }
 
 export const short = a => (a && a.length > 12 ? a.slice(0, 4) + '…' + a.slice(-4) : a || '');
-export const pct = (n, d = 1) => (n == null || !isFinite(n) ? '—' : n.toFixed(d) + '%');
+export const pct = (n, d = 1) => {
+  if (n == null || !isFinite(n)) return '—';
+  const min = 1 / 10 ** d;
+  return n > 0 && n < min ? `under ${min.toFixed(d)}%` : n.toFixed(d) + '%';
+};
 const usdFmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 });
 export const usd = n => (n == null || !isFinite(n) ? '—' : usdFmt.format(n));
 export const sum = arr => arr.reduce((s, x) => s + x, 0);
