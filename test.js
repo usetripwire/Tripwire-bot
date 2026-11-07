@@ -426,6 +426,34 @@ await test('Busy coin (2,500+ txs): launch rebuilt from its metadata account and
   assert.deepEqual(buyers, ['BX1', 'BX2', 'BigDev', 'SN1']);
 });
 
+await test('Mint authority set to the system program counts as burned', async () => {
+  const { authorityWire } = await import('./wires.js');
+  const r = authorityWire({ owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', data: { parsed: { info: { mintAuthority: '11111111111111111111111111111111', freezeAuthority: null } } } });
+  assert.equal(r.tripped, false); assert.match(r.items[0], /burned/);
+});
+await test('Established coin: bot-heavy flow is explained, not tripped', async () => {
+  const { flowWires } = await import('./wires.js');
+  const trades = [];
+  for (let i = 0; i < 40; i++) trades.push({ wallet: 'ARB', side: i % 2 ? 'sell' : 'buy', amount: 1e9, time: 1000 + i * 2, slot: 100 + i, sig: 's' + i });
+  for (let i = 0; i < 6; i++) trades.push({ wallet: 'U' + i, side: 'buy', amount: 1e8, time: 900 + i * 37, slot: 50 + i, sig: 'u' + i });
+  const young = flowWires({ trades, decimals: 6, priceUsd: 1, fastWallets: new Set(['ARB']) });
+  const old = flowWires({ trades, decimals: 6, priceUsd: 1, fastWallets: new Set(['ARB']), established: true });
+  assert.equal(young.agentWire.tripped, true); assert.equal(old.agentWire.tripped, false);
+  assert.ok(old.agentWire.items.some(x => /established coin/.test(x)));
+});
+await test('Tiny price impact reads "less than 0.1%"', async () => {
+  const { exitWire } = await import('./wires.js');
+  const r = exitWire([{ dexId: 'raydium', liquidity: { usd: 1e8 } }]);
+  assert.ok(r.items.some(x => /less than 0\.1%/.test(x))); assert.ok(!r.items.some(x => /about under/.test(x)));
+});
+await test('Sold-out groups read naturally', async () => {
+  const { launchWires } = await import('./wires.js');
+  const trades = [{ wallet: 'D', side: 'buy', amount: 5e13, slot: 5, time: 1, sig: 'a' }, { wallet: 'S1', side: 'buy', amount: 2e13, slot: 6, time: 2, sig: 'b' }];
+  const r = launchWires({ launch: { deployer: 'D', creationSlot: 5, creationTime: 1, trades }, funders: new Map(), holdings: new Map(), supply: 1e15, history: null, now: 9 });
+  assert.ok(r.sniperWire.items.some(x => x === 'They have sold all of it.'));
+  assert.match(r.devWire.items[0], /holds none of the supply/);
+});
+
 for (const [s, n] of results) console.log(s, n);
 const failed = results.filter(r => r[0] === 'FAIL').length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);

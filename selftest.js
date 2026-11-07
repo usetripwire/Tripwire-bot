@@ -46,7 +46,8 @@ async function pickTokens(n) {
     }
   }
   const oldN = Math.max(0, Number(process.env.SELFTEST_OLD || 5));
-  const old = [...OLD].sort(() => Math.random() - 0.5).slice(0, oldN);
+  const only = (process.env.SELFTEST_OLD_LIST || '').split(',').map(x => x.trim().toUpperCase()).filter(Boolean);
+  const old = (only.length ? OLD.filter(([sym]) => only.includes(sym)) : [...OLD].sort(() => Math.random() - 0.5)).slice(0, oldN);
   for (const [sym, m] of old) if (!picked.some(x => x.mint === m)) picked.push({ mint: m, from: 'old ' + sym });
   return picked;
 }

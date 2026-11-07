@@ -86,6 +86,7 @@ export const cfg = {
     washShare: num('T_WASH_SHARE', 30),            // % of recent volume
     minFlowTrades: num('T_MIN_FLOW_TRADES', 5),
     lowFlowTrades: num('T_LOW_FLOW_TRADES', 15),      // below this, agent/wash carry a weak-signal note
+    establishedLiqUsd: num('T_ESTABLISHED_LIQ_USD', 1000000), // above this, bot-heavy flow is normal (arbitrage, market makers)
     platformLaunches: num('T_PLATFORM_LAUNCHES', 15), // a 'deployer' with this many launches is a launchpad account
     serialLaunches: num('T_SERIAL_LAUNCHES', 5),      // a real dev with this many very recent launches is a serial launcher
     top10: num('T_TOP10', 30),

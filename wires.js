@@ -9,12 +9,16 @@ const about = x => (x > 0 && x < 1 ? 'Under 1%' : `About ${pct(x, 0)}`);
 const na = (key, name, why) => ({ key, name, na: true, tripped: false, items: [why], brief: 'n/a' });
 
 /* ---------------- Authority ---------------- */
+const BURN = '11111111111111111111111111111111';
+
 export function authorityWire(mintAcc) {
   const info = mintAcc.data.parsed.info;
   const items = [], flags = [];
-  if (info.mintAuthority) { flags.push('mint on'); items.push(`Mint authority is active: more supply can be created (${short(info.mintAuthority)}).`); }
+  if (info.mintAuthority === BURN) items.push('Mint authority set to the system program (burned): supply is fixed.');
+  else if (info.mintAuthority) { flags.push('mint on'); items.push(`Mint authority is active: more supply can be created (${short(info.mintAuthority)}).`); }
   else items.push('Mint authority revoked: supply is fixed.');
-  if (info.freezeAuthority) { flags.push('freeze on'); items.push(`Freeze authority is active: holder wallets can be frozen (${short(info.freezeAuthority)}).`); }
+  if (info.freezeAuthority === BURN) items.push('Freeze authority set to the system program (burned).');
+  else if (info.freezeAuthority) { flags.push('freeze on'); items.push(`Freeze authority is active: holder wallets can be frozen (${short(info.freezeAuthority)}).`); }
   else items.push('Freeze authority revoked.');
   if (mintAcc.owner === TOKEN_2022) {
     for (const ext of info.extensions || []) {
@@ -32,7 +36,7 @@ export function authorityWire(mintAcc) {
 }
 
 /* ---------------- Holders ---------------- */
-export function holdersWire(largest, owners, kinds, supply, poolSet) {
+export function holdersWire(largest, owners, kinds, supply, poolSet, { established = false } = {}) {
   if (!supply) return na('holders', 'Holders', 'Supply is zero, so concentration can\'t be measured.');
   const rows = largest.map((acc, i) => {
     const owner = owners[i] || '';
@@ -47,7 +51,9 @@ export function holdersWire(largest, owners, kinds, supply, poolSet) {
   const items = [`Top 10 wallets hold ${pct(top10)} of supply (pools and programs excluded).`, `Largest single wallet holds ${pct(top1)}.`];
   if (pooled >= 0.05) items.push(`${pct(pooled)} of supply sits in trading pools.`);
   if (program >= 0.05) items.push(`${pct(program)} is held by programs (bonding curves, pool vaults or lockers), not people.`);
-  return { key: 'holders', name: 'Holders', tripped: top10 > T.top10 || top1 > T.single, items, brief: `top10 ${pct(top10, 0)}`, rows };
+  const tripped = top10 > T.top10 || top1 > T.single;
+  if (tripped && established) items.push('On an established coin, the biggest wallets are often exchanges, treasuries or vesting accounts. Check who they are before reading this as risk.');
+  return { key: 'holders', name: 'Holders', tripped, items, brief: `top10 ${pct(top10, 0)}`, rows };
 }
 
 /* ---------------- Exit ---------------- */
@@ -63,7 +69,7 @@ export function exitWire(pairs) {
   const slip = q > 0 ? (T.sellUsd / (q + T.sellUsd)) * 100 : 100;
   return {
     key: 'exit', name: 'Exit', tripped: liq < T.minLiqUsd || slip > T.maxSlip,
-    items: [`Deepest pool: ${usd(liq)} liquidity on ${p.dexId || 'a DEX'}.`, `Selling ${usd(T.sellUsd)} would move the price about ${pct(slip)} (estimate).`],
+    items: [`Deepest pool: ${usd(liq)} liquidity on ${p.dexId || 'a DEX'}.`, `Selling ${usd(T.sellUsd)} would move the price ${slip < 0.1 ? 'less than 0.1%' : 'about ' + pct(slip)} (estimate).`],
     brief: `${usd(liq)} liq`
   };
 }
@@ -132,7 +138,7 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
   } else {
     const items = [
       `${bundle.size} linked wallets held up to ${pct(bundleBought)} of supply at launch (same block or shared funding).`,
-      `They still hold ${pct(bundleHeld)}.`
+      bundleHeld > 0 ? `They still hold ${pct(bundleHeld)}.` : `They have sold all of it.`
     ];
     if (devFunded) items.push(`${devFunded} of them were funded directly by the deployer.`);
     const major = bundleBought >= T.bundleMajor;
@@ -153,7 +159,7 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
       key: 'sniper', name: 'Sniper', tripped: share(sHeld) >= T.sniperHeld,
       items: [
         `${snipers.length === 1 ? '1 wallet' : snipers.length + ' wallets'} sniped ${pct(share(sBought))} of supply in the first ${cfg.scan.sniperSlots} blocks.`,
-        `They still hold ${pct(share(sHeld))} (about ${pct(soldShare, 0)} already sold).`
+        sHeld <= 0 ? `They have sold all of it.` : soldShare >= 99.5 ? `They still hold ${pct(share(sHeld))} (almost all sold).` : `They still hold ${pct(share(sHeld))} (about ${pct(soldShare, 0)} already sold).`
       ],
       brief: `hold ${pct(share(sHeld), 0)}`
     };
@@ -162,7 +168,7 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
   // Dev: deployer's current holdings, selling, and past launches
   const devBought = bought.get(deployer) || 0;
   const devHeld = share(held(deployer));
-  const items = [`Deployer ${short(deployer)} holds ${pct(devHeld)} of supply now.`];
+  const items = [devHeld > 0 ? `Deployer ${short(deployer)} holds ${pct(devHeld)} of supply now.` : `Deployer ${short(deployer)} holds none of the supply now.`];
   const devMinted = sum(trades.filter(t => t.side === 'mint' && t.wallet === deployer).map(t => t.amount));
   if (devMinted > 0) items.push(`Dev minted ${pct(share(devMinted))} of supply straight to their own wallet at launch (not a market buy).`);
   if (devBought > 0) items.push(held(deployer) < devBought * 0.5 ? `Dev has sold most of their launch buy (${pct(share(devBought))} of supply).` : `Dev still holds most of their launch buy.`);
@@ -180,7 +186,10 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
     else {
       const scope = history.capped ? ' in their recent history' : '';
       if (aged.length) {
-        items.push(`Deployer launched ${past.length} other token${past.length === 1 ? '' : 's'}${scope}; ${dead.length} of the ${aged.length} older than a day ${dead.length === 1 ? 'is' : 'are'} dead (under ${usd(T.deadLiqUsd)} liquidity).`);
+        const deadTxt = aged.length === 1
+          ? (dead.length ? `it is now dead (under ${usd(T.deadLiqUsd)} liquidity)` : 'it is still trading')
+          : `${dead.length} of the ${aged.length} older than a day ${dead.length === 1 ? 'is' : 'are'} dead (under ${usd(T.deadLiqUsd)} liquidity)`;
+        items.push(`Deployer launched ${past.length} other token${past.length === 1 ? '' : 's'}${scope}; ${deadTxt}.`);
         brief = `${dead.length}/${aged.length} past dead`;
         if (aged.length >= T.devMinLaunches && (dead.length / aged.length) * 100 >= T.devDeadShare) tripped = true;
       } else {
@@ -198,7 +207,9 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
 }
 
 /* ---------------- Flow wires: Agent, Wash ---------------- */
-export function flowWires({ trades, decimals, priceUsd, fastWallets }) {
+const MATURE_NOTE = 'This is an established coin with deep liquidity, where arbitrage and market-making bots doing most of the trading is normal, so this wire does not trip.';
+
+export function flowWires({ trades, decimals, priceUsd, fastWallets, established = false }) {
   const nt = trades.length;
   if (nt < T.minFlowTrades) {
     const why = nt ? `Only ${nt} trade${nt === 1 ? '' : 's'} in this coin's recent history, which is too little to judge.` : 'No trades found in this coin\'s recent history.';
@@ -227,8 +238,9 @@ export function flowWires({ trades, decimals, priceUsd, fastWallets }) {
   const agentVol = sum(agents.flatMap(w => byWallet.get(w).map(val)));
   const agentShare = (agentVol / total) * 100;
   const agentWire = {
-    key: 'agent', name: 'Agent', tripped: agentShare >= T.agentShare,
-    items: [agents.length ? `${about(agentShare)} of recent volume came from ${agents.length === 1 ? '1 wallet that trades like a bot' : agents.length + ' wallets that trade like bots'}.` : `No bot-like trading in the last ${nt} trades.`, weak],
+    key: 'agent', name: 'Agent', tripped: !established && agentShare >= T.agentShare,
+    items: [agents.length ? `${about(agentShare)} of recent volume came from ${agents.length === 1 ? '1 wallet that trades like a bot' : agents.length + ' wallets that trade like bots'}.` : `No bot-like trading in the last ${nt} trades.`, weak,
+      established && agentShare >= T.agentShare ? MATURE_NOTE : null].filter(Boolean),
     brief: `~${pct(agentShare, 0)}`
   };
 
@@ -243,8 +255,9 @@ export function flowWires({ trades, decimals, priceUsd, fastWallets }) {
   const washVol = sum(washers.flatMap(w => byWallet.get(w).map(val)));
   const washShare = (washVol / total) * 100;
   const washWire = {
-    key: 'wash', name: 'Wash', tripped: washShare >= T.washShare,
-    items: [washers.length ? `${about(washShare)} of recent volume is ${washers.length === 1 ? '1 wallet' : washers.length + ' wallets'} buying and selling the same size back and forth.` : `No wash trading in the last ${nt} trades.`, weak],
+    key: 'wash', name: 'Wash', tripped: !established && washShare >= T.washShare,
+    items: [washers.length ? `${about(washShare)} of recent volume is ${washers.length === 1 ? '1 wallet' : washers.length + ' wallets'} buying and selling the same size back and forth.` : `No wash trading in the last ${nt} trades.`, weak,
+      established && washShare >= T.washShare ? MATURE_NOTE : null].filter(Boolean),
     brief: `~${pct(washShare, 0)} of vol`
   };
   return { agentWire, washWire };

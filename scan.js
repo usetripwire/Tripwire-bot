@@ -41,6 +41,10 @@ async function runScan(mint) {
   const pair = pairs && pairs[0];
   const poolSet = new Set((pairs || []).map(p => p.pairAddress).filter(Boolean));
   const now = Math.floor(Date.now() / 1000);
+  // Established: deep liquidity, or a decent pool that has traded for 90+ days
+  const liqUsd = (pair && pair.liquidity && pair.liquidity.usd) || 0;
+  const ageDays = pair && pair.pairCreatedAt ? (Date.now() - pair.pairCreatedAt) / 86400e3 : 0;
+  const established = liqUsd >= cfg.t.establishedLiqUsd || (ageDays >= 90 && liqUsd >= cfg.t.establishedLiqUsd / 4);
 
   // Basics
   const authority = authorityWire(acc);
@@ -52,7 +56,7 @@ async function runScan(mint) {
       const tokAccs = await rpcBatch([['getMultipleAccounts', [largest.map(a => a.address), { encoding: 'jsonParsed' }]]]);
       const owners = ((tokAccs[0] && tokAccs[0].value) || []).map(a => (a && a.data && a.data.parsed ? a.data.parsed.info.owner : ''));
       const kinds = await ownerKinds(owners);
-      holders = holdersWire(largest, owners, kinds, supply, poolSet);
+      holders = holdersWire(largest, owners, kinds, supply, poolSet, { established });
     } catch { /* keep n/a */ }
   }
 
@@ -142,7 +146,7 @@ async function runScan(mint) {
       const p = pages[i] || [];
       if (p.length >= 1000 && p[0].blockTime && p[p.length - 1].blockTime && p[0].blockTime - p[p.length - 1].blockTime < 86400) fastWallets.add(w);
     });
-    return flowWires({ trades, decimals, priceUsd: Number(pair.priceUsd) || 0, fastWallets });
+    return flowWires({ trades, decimals, priceUsd: Number(pair.priceUsd) || 0, fastWallets, established });
   })().catch(e => {
     log('trade wires failed', mint, e.message);
     const why = /rate_limited/.test(e.message) ? 'Our Solana data provider is busy right now. Try again in a minute.' : 'Recent trades could not be read. Try again shortly.';
