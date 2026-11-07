@@ -56,8 +56,14 @@ export async function pollOnce(now = Date.now()) {
   save();
   if (!fresh.length) return 0;
   const txs = await getTxs(fresh.reverse());
-  let added = 0;
-  for (let i = 0; i < txs.length; i++) for (const m of mintsFromTx(txs[i])) if (enqueue(m, fresh[i], now)) added++;
+  let added = 0, grads = 0;
+  for (let i = 0; i < txs.length; i++) {
+    const ms = mintsFromTx(txs[i]);
+    if (ms.length) grads++;
+    for (const m of ms) if (enqueue(m, fresh[i], now)) added++;
+  }
+  stats.graduations = (stats.graduations || 0) + grads;
+  if (grads) log(`Radar: ${grads} graduation tx(s) in ${fresh.length} new, ${added} mint(s) queued`);
   return added;
 }
 
@@ -86,12 +92,14 @@ export async function processQueue(now = Date.now()) {
       const pairs = await pairsFor(q.mint);
       const liq = (pairs[0] && pairs[0].liquidity && pairs[0].liquidity.usd) || 0;
       if (liq < R.minLiqUsd) { stats.skipped++; continue; }
+      log(`Radar scanning ${q.mint} (liq $${Math.round(liq)})`);
       scanTimes.push(now);
       const r = await scan(q.mint);
       store.entries.unshift(toEntry(r, q));
       store.entries = store.entries.slice(0, R.keep);
       stats.scanned++;
       save();
+      log(`Radar added ${r.token.symbol || q.mint}: ${store.entries[0].trips}/${store.entries[0].ran} tripped`);
     } catch (e) {
       log('radar scan failed', q.mint, e.message);
     }
@@ -126,7 +134,7 @@ export function startRadar() {
   tick();
   setInterval(tick, R.pollSeconds * 1000);
   setInterval(() => {
-    log(`Radar last hour: ${stats.detected} graduations found, ${stats.scanned} scanned, ${stats.skipped} skipped for low liquidity, ${queue.length} waiting.`);
-    stats.detected = stats.scanned = stats.skipped = 0;
-  }, 3600e3);
+    log(`Radar last 15 min: ${stats.graduations || 0} graduations, ${stats.detected} mints queued, ${stats.scanned} scanned, ${stats.skipped} skipped (low liquidity or no pool), ${queue.length} waiting, ${store.entries.length} in feed.`);
+    stats.detected = stats.scanned = stats.skipped = stats.graduations = 0;
+  }, 900e3);
 }
