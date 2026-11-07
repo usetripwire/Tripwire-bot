@@ -454,6 +454,18 @@ await test('Sold-out groups read naturally', async () => {
   assert.match(r.devWire.items[0], /holds none of the supply/);
 });
 
+await test('Pool claiming more liquidity than the market cap is not trusted', async () => {
+  const { rankPairs } = await import('./dex.js');
+  const { exitWire } = await import('./wires.js');
+  const pairs = rankPairs([
+    { dexId: 'raydium', pairAddress: 'FAKE', liquidity: { usd: 235e6 }, volume: { h24: 10 }, marketCap: 9e6 },
+    { dexId: 'orca', pairAddress: 'REAL', liquidity: { usd: 4e5 }, volume: { h24: 5e5 }, marketCap: 9e6 }
+  ]);
+  assert.equal(pairs[0].pairAddress, 'REAL');
+  const r = exitWire(pairs);
+  assert.match(r.items[0], /\$400(\.0)?K/); assert.ok(r.items.some(x => /Ignored a raydium pool/.test(x)));
+});
+
 for (const [s, n] of results) console.log(s, n);
 const failed = results.filter(r => r[0] === 'FAIL').length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);

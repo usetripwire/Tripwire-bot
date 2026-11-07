@@ -65,11 +65,14 @@ export function exitWire(pairs) {
     const where = p.dexId === 'pumpfun' ? 'the pump.fun bonding curve' : p.dexId ? `a ${p.dexId} launch curve` : 'a launch curve';
     return { key: 'exit', name: 'Exit', na: true, tripped: false, items: [`Still on ${where}, which doesn't report pool liquidity, so sells go back into the curve. Pool depth is checked after it graduates.`], brief: 'on curve' };
   }
+  const suspect = pairs.filter(x => x._suspect).sort((a, b) => ((b.liquidity || {}).usd || 0) - ((a.liquidity || {}).usd || 0))[0];
   const q = liq / 2; // constant-product estimate: quote side is about half the pool's value
   const slip = q > 0 ? (T.sellUsd / (q + T.sellUsd)) * 100 : 100;
   return {
     key: 'exit', name: 'Exit', tripped: liq < T.minLiqUsd || slip > T.maxSlip,
-    items: [`Deepest pool: ${usd(liq)} liquidity on ${p.dexId || 'a DEX'}.`, `Selling ${usd(T.sellUsd)} would move the price ${slip < 0.1 ? 'less than 0.1%' : 'about ' + pct(slip)} (estimate).`],
+    items: [`Deepest pool: ${usd(liq)} liquidity on ${p.dexId || 'a DEX'}.`, `Selling ${usd(T.sellUsd)} would move the price ${slip < 0.1 ? 'less than 0.1%' : 'about ' + pct(slip)} (estimate).`,
+      p._suspect ? 'This pool reports more liquidity than the whole coin is worth, so treat this figure with caution.'
+        : suspect ? `Ignored a ${suspect.dexId || 'DEX'} pool claiming ${usd(suspect.liquidity.usd)} of liquidity, more than the whole coin is worth (bad data or a fake pool).` : null].filter(Boolean),
     brief: `${usd(liq)} liq`
   };
 }
@@ -137,7 +140,7 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
     bundleWire = { key: 'bundle', name: 'Bundle', tripped: false, items: [devBuy >= 0.05 ? `No linked wallets. Only the dev bought at launch (${pct(devBuy)} of supply), which the dev wire covers.` : 'No linked wallets bought in the launch block or with shared funding.'], brief: 'clear' };
   } else {
     const items = [
-      `${bundle.size} linked wallets held up to ${pct(bundleBought)} of supply at launch (same block or shared funding).`,
+      `${bundle.size} linked wallets held ${bundleBought < 0.1 ? 'less than 0.1%' : 'up to ' + pct(bundleBought)} of supply at launch (same block or shared funding).`,
       bundleHeld > 0 ? `They still hold ${pct(bundleHeld)}.` : `They have sold all of it.`
     ];
     if (devFunded) items.push(`${devFunded} of them were funded directly by the deployer.`);
@@ -171,7 +174,7 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
   const items = [devHeld > 0 ? `Deployer ${short(deployer)} holds ${pct(devHeld)} of supply now.` : `Deployer ${short(deployer)} holds none of the supply now.`];
   const devMinted = sum(trades.filter(t => t.side === 'mint' && t.wallet === deployer).map(t => t.amount));
   if (devMinted > 0) items.push(`Dev minted ${pct(share(devMinted))} of supply straight to their own wallet at launch (not a market buy).`);
-  if (devBought > 0) items.push(held(deployer) < devBought * 0.5 ? `Dev has sold most of their launch buy (${pct(share(devBought))} of supply).` : `Dev still holds most of their launch buy.`);
+  if (share(devBought) >= 0.1) items.push(held(deployer) < devBought * 0.5 ? `Dev has sold most of their launch buy (${pct(share(devBought))} of supply).` : `Dev still holds most of their launch buy.`);
   let tripped = devHeld >= T.devHeld;
   let brief = `holds ${pct(devHeld, 0)}`;
   if (launch.launchpad) items.push(`Launched through a launchpad account (${short(launch.launchpad)}); checking the creator who co-signed instead.`);

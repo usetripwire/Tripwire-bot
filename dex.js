@@ -12,9 +12,18 @@ const liq = p => (p && p.liquidity && p.liquidity.usd) || 0;
 // All Solana pools where this mint is the base token, deepest first.
 export async function pairsFor(mint) {
   const j = await get(`${BASE}/latest/dex/tokens/${mint}`);
-  return (j.pairs || [])
-    .filter(p => p.chainId === 'solana' && p.baseToken && p.baseToken.address === mint)
-    .sort((a, b) => liq(b) - liq(a));
+  const pairs = (j.pairs || []).filter(p => p.chainId === 'solana' && p.baseToken && p.baseToken.address === mint);
+  return rankPairs(pairs);
+}
+
+// Deepest pool first, but never trust a pool that claims more liquidity than the whole coin is worth
+// (bad indexer data or a fake pool set up to look safe). Market cap comes from the busiest pool.
+export function rankPairs(pairs) {
+  const vol = p => (p.volume && p.volume.h24) || 0;
+  const busiest = [...pairs].sort((a, b) => vol(b) - vol(a))[0];
+  const ref = busiest ? busiest.marketCap || busiest.fdv || 0 : 0;
+  for (const p of pairs) p._suspect = !!(ref && liq(p) > ref * 1.05 && pairs.length > 1);
+  return pairs.sort((a, b) => (a._suspect - b._suspect) || (liq(b) - liq(a)));
 }
 
 // Deepest-pool liquidity for many mints (30 per request). Returns Map mint -> liquidity USD.
