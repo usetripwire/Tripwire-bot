@@ -129,6 +129,10 @@ globalThis.fetch = async (url, init = {}) => {
   if (url.startsWith('http://127.0.0.1')) return realFetch(url, init);
   if (url === 'https://rpc.test') {
     const body = JSON.parse(init.body);
+    if (Array.isArray(body) && globalThis.throttleFirst) {
+      const n = globalThis.throttleFirst; globalThis.throttleFirst = 0;
+      return json(body.map((b, i) => i < n ? { jsonrpc: '2.0', id: b.id, error: { code: -32429, message: 'rate limit exceeded' } } : { jsonrpc: '2.0', id: b.id, result: rpcAnswer(b) }));
+    }
     if (Array.isArray(body) && globalThis.rejectBatch) return json({ jsonrpc: '2.0', id: null, error: { code: -32403, message: 'Batch requests are only available for paid plans' } }, 403);
     if (Array.isArray(body)) return json(body.map(b => ({ jsonrpc: '2.0', id: b.id, result: rpcAnswer(b) })));
     return json({ jsonrpc: '2.0', id: body.id, result: rpcAnswer(body) });
@@ -279,6 +283,12 @@ await test('Radar API: sign in over HTTP and get the live feed', async () => {
 });
 
 
+await test('Rate-limited items inside a batch are retried instead of dropped', async () => {
+  const { rpcBatch } = await import('./rpc.js');
+  globalThis.throttleFirst = 2;
+  const r = await rpcBatch([['getTransaction', ['create', {}]], ['getTransaction', ['bundle0', {}]], ['getTransaction', ['bundle1', {}]]]);
+  assert.equal(r.filter(Boolean).length, 3);
+});
 await test('Bonding-curve coin: Exit shows n/a instead of a false trip', async () => {
   const { exitWire } = await import('./wires.js');
   const c = exitWire([{ dexId: 'pumpfun', liquidity: {} }]);

@@ -93,9 +93,17 @@ async function runScan(mint) {
       const why = 'No trading pool found, so there is no recent trading to read.';
       return { agentWire: na('agent', 'Agent', why), washWire: na('wash', 'Wash', why) };
     }
-    const sigs = (await sigsFor(pair.pairAddress, { limit: cfg.scan.recentTxs })).filter(s => !s.err);
-    const txs = await getTxs(sigs.map(s => s.signature));
-    const trades = txs.flatMap(tx => parseTrades(tx, mint));
+    // Read recent pool transactions; go further back if the coin trades slowly.
+    let trades = [], before, read = 0;
+    while (read < cfg.scan.recentTxsMax) {
+      const page = await sigsFor(pair.pairAddress, { limit: cfg.scan.recentTxs, before });
+      if (!page.length) break;
+      read += page.length;
+      before = page[page.length - 1].signature;
+      const txs = await getTxs(page.filter(s => !s.err).map(s => s.signature));
+      trades = trades.concat(txs.flatMap(tx => parseTrades(tx, mint)));
+      if (trades.length >= cfg.t.minFlowTrades * 2 || page.length < cfg.scan.recentTxs) break;
+    }
     // Check the busiest wallets' overall transaction rate (1000 txs in under a day = automated)
     const vol = new Map();
     for (const t of trades) vol.set(t.wallet, (vol.get(t.wallet) || 0) + t.amount);

@@ -42,11 +42,12 @@ export const cfg = {
     fundingChecks: num('FUNDING_CHECKS', 15),       // early buyers whose funding we trace
     devHistoryTxs: num('DEV_HISTORY_TXS', 60),     // deployer transactions searched for past launches
     recentTxs: num('RECENT_TXS', 60),              // recent pool transactions for agent + wash
+    recentTxsMax: num('RECENT_TXS_MAX', 180),     // read further back when a coin trades slowly
     agentWalletChecks: num('AGENT_WALLET_CHECKS', 6),
     rpcConcurrency: num('RPC_CONCURRENCY', 4),
-    rpcRps: num('RPC_RPS', 8),                       // requests per second (Helius free plan allows ~10)
+    rpcRps: num('RPC_RPS', 5),                       // requests per second (Helius free plan allows ~10)
     rpcBatch: bool('RPC_BATCH', true),              // set false if your RPC plan rejects batch requests
-    batchSize: num('RPC_BATCH_SIZE', 10),
+    batchSize: num('RPC_BATCH_SIZE', 5),
     cacheMinutes: num('CACHE_MINUTES', 10)
   },
 

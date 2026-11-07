@@ -8,6 +8,7 @@ let nextId = 1;
 let nextAt = 0;
 let batchOk = cfg.scan.rpcBatch;
 export const stats = { requests: 0, calls: 0, throttled: 0 };
+const isThrottle = e => !!e && (e.code === 429 || e.code === -32429 || /rate|limit|too many/i.test(e.message || ''));
 
 // Reserve `items` request slots at RPC_RPS per second; returns how long to wait.
 function reserve(items) {
@@ -31,6 +32,7 @@ async function post(body, items) {
     }
     const j = await res.json().catch(() => null);
     if (!res.ok && !(j && j.error)) throw new Error('rpc_http_' + res.status);
+    if (j && !Array.isArray(j) && isThrottle(j.error)) { stats.throttled++; await sleep(Math.min(20000, 1000 * 2 ** attempt)); continue; }
     return j;
   }
   throw new Error('rpc_rate_limited');
@@ -66,7 +68,18 @@ export async function rpcBatch(calls, chunk = cfg.scan.batchSize) {
       (await singles(slice)).forEach((r, k) => { out[start + k] = r; });
       continue;
     }
-    for (const r of j) if (r && r.id != null && !r.error) out[r.id] = r.result;
+    const retry = [];
+    for (const r of j) {
+      if (!r || r.id == null) continue;
+      if (!r.error) out[r.id] = r.result;
+      else if (isThrottle(r.error)) retry.push(r.id);
+    }
+    // Items the provider turned away for rate limits get retried one by one, slower.
+    if (retry.length) {
+      stats.throttled += retry.length;
+      await sleep(1000);
+      (await singles(retry.map(id => calls[id]))).forEach((res, k) => { out[retry[k]] = res; });
+    }
   }
   return out;
 }
