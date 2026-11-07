@@ -45,7 +45,7 @@ export function holdersWire(largest, owners, kinds, supply, poolSet) {
   const program = sum(rows.filter(r => r.kind === 'program').map(r => r.share));
   const items = [`Top 10 wallets hold ${pct(top10)} of supply (pools and programs excluded).`, `Largest single wallet holds ${pct(top1)}.`];
   if (pooled > 0) items.push(`${pct(pooled)} of supply sits in trading pools.`);
-  if (program > 0) items.push(`${pct(program)} is held by programs such as lockers or vaults.`);
+  if (program > 0) items.push(`${pct(program)} is held by programs (bonding curves, pool vaults or lockers), not people.`);
   return { key: 'holders', name: 'Holders', tripped: top10 > T.top10 || top1 > T.single, items, brief: `top10 ${pct(top10, 0)}`, rows };
 }
 
@@ -215,7 +215,7 @@ export function flowWires({ trades, decimals, priceUsd, fastWallets }) {
   const agentShare = (agentVol / total) * 100;
   const agentWire = {
     key: 'agent', name: 'Agent', tripped: agentShare >= T.agentShare,
-    items: [`About ${pct(agentShare, 0)} of recent volume came from ${agents.length === 1 ? '1 wallet that trades like a bot' : agents.length + ' wallets that trade like bots'}.`, weak],
+    items: [agents.length ? `About ${pct(agentShare, 0)} of recent volume came from ${agents.length === 1 ? '1 wallet that trades like a bot' : agents.length + ' wallets that trade like bots'}.` : `No bot-like trading in the last ${nt} trades.`, weak],
     brief: `~${pct(agentShare, 0)}`
   };
 
@@ -231,7 +231,7 @@ export function flowWires({ trades, decimals, priceUsd, fastWallets }) {
   const washShare = (washVol / total) * 100;
   const washWire = {
     key: 'wash', name: 'Wash', tripped: washShare >= T.washShare,
-    items: [`About ${pct(washShare, 0)} of recent volume is ${washers.length} wallet${washers.length === 1 ? '' : 's'} buying and selling the same size back and forth.`, weak],
+    items: [washers.length ? `About ${pct(washShare, 0)} of recent volume is ${washers.length === 1 ? '1 wallet' : washers.length + ' wallets'} buying and selling the same size back and forth.` : `No wash trading in the last ${nt} trades.`, weak],
     brief: `~${pct(washShare, 0)} of vol`
   };
   return { agentWire, washWire };

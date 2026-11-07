@@ -2,7 +2,8 @@
 import { rpc, rpcBatch, sigsFor, getTxs } from './rpc.js';
 import { cfg } from './config.js';
 import { TTLCache, log } from './util.js';
-import { metadataPda } from './pda.js';
+import { metadataPda, isOnCurve } from './pda.js';
+import { b58decode } from './auth.js';
 
 export const SYSTEM_PROGRAM = '11111111111111111111111111111111';
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -184,7 +185,11 @@ export async function ownerKinds(owners) {
     const r = await rpc('getMultipleAccounts', [slice, { encoding: 'base64' }]);
     slice.forEach((o, k) => {
       const acc = r && r.value ? r.value[k] : null;
-      kinds.set(o, KNOWN_POOL_OWNERS.has(o) ? 'pool' : acc && acc.owner && acc.owner !== SYSTEM_PROGRAM ? 'program' : 'wallet');
+      // Real wallets are ed25519 keys (on the curve). Program addresses (PDAs) are off the curve:
+      // bonding-curve reserves, pool vault authorities, lockers. Those aren't holders.
+      let offCurve = false;
+      try { const raw = b58decode(o); offCurve = raw.length === 32 && !isOnCurve(raw); } catch { /* not base58: leave as is */ }
+      kinds.set(o, KNOWN_POOL_OWNERS.has(o) ? 'pool' : offCurve || (acc && acc.owner && acc.owner !== SYSTEM_PROGRAM) ? 'program' : 'wallet');
     });
   }
   return kinds;

@@ -342,6 +342,13 @@ await test('Curve check: about half of random hashes are off the curve', () => {
   for (let i = 0; i < 200; i++) if (!isOnCurve(crypto.randomBytes(32))) off++;
   assert.ok(off > 60 && off < 140, String(off));
 });
+await test('Holders: an off-curve owner (bonding-curve reserve) counts as a program, a real key as a wallet', async () => {
+  const { ownerKinds } = await import('./chain.js');
+  const { findPda } = await import('./pda.js');
+  const reserve = findPda([Buffer.from('bonding-curve'), b58decode('7xKqTr1pWzTestMintHv9bRnZ3hJ5cD8fG2sA4Lpump')], '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
+  const k = await ownerKinds([reserve, whale.address]);
+  assert.equal(k.get(reserve), 'program'); assert.equal(k.get(whale.address), 'wallet');
+});
 await test('Busy coin (2,500+ txs): launch rebuilt from its metadata account and launch blocks', async () => {
   const { reconstructLaunch } = await import('./chain.js');
   const BIG = 'BigMint9xKqWv7bRnZ3hJ5cD8fG2sA4LTrippump';
