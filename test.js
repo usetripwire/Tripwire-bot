@@ -9,7 +9,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-'));
 Object.assign(process.env, {
   RPC_URL: 'https://rpc.test', SITE_URL: 'https://tripwirescan.com', DRY_RUN: 'false',
   X_API_KEY: 'k', X_API_SECRET: 's', X_ACCESS_TOKEN: 't', X_ACCESS_SECRET: 'ts', X_API_BASE: 'https://api.x.test',
-  STATE_PATH: path.join(tmp, 'state.json'), ALLOWED_ORIGINS: 'https://tripwirescan.com'
+  STATE_PATH: path.join(tmp, 'state.json'), ALLOWED_ORIGINS: 'https://tripwirescan.com', REPLY_LINK: 'true'
 });
 
 /* ---------- fixture world ---------- */

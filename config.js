@@ -30,6 +30,8 @@ export const cfg = {
   enableBot: bool('ENABLE_BOT', false),
   dryRun: bool('DRY_RUN', true),          // true = log replies instead of posting
   replyBacklog: bool('REPLY_BACKLOG', false),
+  // X charges far more for posts containing a link, so replies are link-free unless REPLY_LINK=true
+  replyLink: bool('REPLY_LINK', false),
   pollSeconds: num('POLL_SECONDS', 20),
   statePath: path.resolve(root, env('STATE_PATH', './data/state.json')),
   x: {
