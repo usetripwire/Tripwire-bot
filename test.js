@@ -476,6 +476,13 @@ await test('Pool claiming more liquidity than the market cap is not trusted', as
     { dexId: 'raydium', pairAddress: 'DUST', liquidity: { usd: 391 }, volume: { h24: 300 }, marketCap: 124000 }
   ]);
   assert.equal(most[0].pairAddress, 'MOST'); assert.ok(!most.some(p => p._suspect));
+  // Real main pool next to tiny pools with stale prices is kept (live Radar case)
+  const stale = rankPairs([
+    { dexId: 'pumpswap', pairAddress: 'MAIN', liquidity: { usd: 367702 }, volume: { h24: 9e5 }, marketCap: 21375033 },
+    { dexId: 'meteora', pairAddress: 'OLD1', liquidity: { usd: 900 }, volume: { h24: 1 }, marketCap: 40000 },
+    { dexId: 'raydium', pairAddress: 'OLD2', liquidity: { usd: 300 }, volume: { h24: 0 }, marketCap: 30000 }
+  ]);
+  assert.equal(stale[0].pairAddress, 'MAIN'); assert.ok(!stale[0]._suspect);
 });
 
 for (const [s, n] of results) console.log(s, n);

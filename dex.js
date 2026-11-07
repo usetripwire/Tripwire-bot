@@ -18,20 +18,16 @@ export async function pairsFor(mint) {
 }
 
 // Deepest pool first, but never trust a pool that claims more liquidity than it could hold by its own
-// price (a pool is two sides, so at most about 2x the market cap), or whose price puts the coin at 20x+ the market cap every other pool shows
-// (bad indexer data or a fake pool set up to look safe).
+// price (a pool is two sides, so at most about 2x the market cap). That is bad indexer data or a fake
+// pool set up to look safe.
 export function rankPairs(pairs) {
   const mc = p => p.marketCap || p.fdv || 0;
-  const median = xs => { const a = xs.filter(x => x > 0).sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : 0; };
-  for (const p of pairs) {
-    const own = mc(p);
-    const others = median(pairs.filter(q => q !== p).map(mc));
-    p._suspect = pairs.length > 1 && liq(p) > 0 && ((own > 0 && liq(p) > own * 2.05) || (others > 0 && own > others * 20 && liq(p) > others));
-  }
+  for (const p of pairs) { const own = mc(p); p._suspect = pairs.length > 1 && own > 0 && liq(p) > own * 2.05; }
   const bad = pairs.filter(p => p._suspect);
   if (bad.length) log('ignored pools', JSON.stringify(bad.map(p => ({ dex: p.dexId, pool: p.pairAddress, liq: liq(p), mcap: mc(p), quote: p.quoteToken && p.quoteToken.symbol }))));
   return pairs.sort((a, b) => (a._suspect - b._suspect) || (liq(b) - liq(a)));
 }
+
 
 
 // Deepest-pool liquidity for many mints (30 per request). Returns Map mint -> liquidity USD.
