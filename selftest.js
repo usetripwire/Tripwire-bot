@@ -10,6 +10,22 @@ const SOURCES = [
   ['top boosts', 'https://api.dexscreener.com/token-boosts/top/v1']
 ];
 
+// Older coins (months to years old) so every round also covers big, busy histories
+const OLD = [
+  ['BONK', 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'],
+  ['WIF', 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm'],
+  ['POPCAT', '7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr'],
+  ['JUP', 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN'],
+  ['RAY', '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R'],
+  ['SAMO', '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU'],
+  ['MEW', 'MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5'],
+  ['PNUT', '2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump'],
+  ['GOAT', 'CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump'],
+  ['FARTCOIN', '9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump'],
+  ['MYRO', 'HhJpBhRRn4g56VsyLuT8DL5Bv31HkXqsrahTTUCZeZg4'],
+  ['ORCA', 'orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE']
+];
+
 async function pickTokens(n) {
   const pools = [];
   for (const [label, url] of SOURCES) {
@@ -29,6 +45,9 @@ async function pickTokens(n) {
       if (picked.length >= n) break;
     }
   }
+  const oldN = Math.max(0, Number(process.env.SELFTEST_OLD || 5));
+  const old = [...OLD].sort(() => Math.random() - 0.5).slice(0, oldN);
+  for (const [sym, m] of old) if (!picked.some(x => x.mint === m)) picked.push({ mint: m, from: 'old ' + sym });
   return picked;
 }
 
