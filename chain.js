@@ -2,7 +2,7 @@
 import { rpc, rpcBatch, sigsFor, getTxs } from './rpc.js';
 import { cfg } from './config.js';
 import { TTLCache, log } from './util.js';
-import { metadataPda, isOnCurve } from './pda.js';
+import { metadataPda, isOnCurve, findPda } from './pda.js';
 import { b58decode } from './auth.js';
 
 export const SYSTEM_PROGRAM = '11111111111111111111111111111111';
@@ -92,19 +92,28 @@ export async function reconstructLaunch(mint) {
   };
   await tryPages(cfg.scan.mintSigPages);
   if (!reachedStart) {
+    const viaCurve = await launchViaCurve(mint).catch(e => { log('curve shortcut failed', mint, e.message); return null; });
+    if (viaCurve) return viaCurve;
     const viaMeta = await launchViaMetadata(mint).catch(e => { log('metadata shortcut failed', mint, e.message); return null; });
     if (viaMeta) return viaMeta;
     await tryPages(cfg.scan.mintSigPagesMax);
   }
   if (!reachedStart) return { ok: false, reason: 'too_active', txCount: all.length };
+  return fromHistory(all, mint);
+}
+
+// Rebuild the launch from a full signature history (oldest at the end).
+async function fromHistory(all, mint, extra = {}, requireInit = false) {
   const okSigs = all.filter(s => !s.err);
-  if (!okSigs.length) return { ok: false, reason: 'no_history' };
+  if (!okSigs.length) return extra.viaCurve ? null : { ok: false, reason: 'no_history' };
   const early = okSigs.slice(-cfg.scan.earlyTxs).reverse();
   const txs = (await getTxs(early.map(s => s.signature))).filter(Boolean).sort((a, b) => a.slot - b.slot);
-  if (!txs.length) return { ok: false, reason: 'no_history' };
-  const creation = txs.find(t => mintsInitialized(t).includes(mint)) || txs[0];
+  if (!txs.length) return extra.viaCurve ? null : { ok: false, reason: 'no_history' };
+  const init = txs.find(t => mintsInitialized(t).includes(mint));
+  if (requireInit && !init) return null;
+  const creation = init || txs[0];
   return {
-    ok: true,
+    ok: true, ...extra,
     deployer: feePayerOf(creation),
     creationSigners: keysOf(creation).filter(k => k.signer).map(k => k.pubkey),
     creationSlot: creation.slot,
@@ -112,6 +121,23 @@ export async function reconstructLaunch(mint) {
     trades: txs.flatMap(t => parseTrades(t, mint)),
     txCount: all.length
   };
+}
+
+// pump.fun coins: the bonding-curve account only sees trading until graduation,
+// so even very busy coins have a short curve history that starts at the launch.
+export const PUMP_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+async function launchViaCurve(mint) {
+  const curve = findPda([Buffer.from('bonding-curve'), b58decode(mint)], PUMP_PROGRAM);
+  if (!curve) return null;
+  let before, all = [], done = false;
+  for (let p = 0; p < cfg.scan.curveSigPages; p++) {
+    const page = await sigsFor(curve, { limit: 1000, before });
+    all = all.concat(page);
+    if (page.length < 1000) { done = true; break; }
+    before = page[page.length - 1].signature;
+  }
+  if (!done || !all.length) return null;
+  return fromHistory(all, mint, { viaCurve: true }, true);
 }
 
 async function launchViaMetadata(mint) {
@@ -181,17 +207,20 @@ export async function launchesBy(deployer, exceptMint) {
   const key = deployer;
   let found = devCache.get(key);
   if (!found) {
-    const sigs = (await sigsFor(deployer, { limit: cfg.scan.devHistoryTxs })).filter(s => !s.err);
+    // One cheap page of 1,000 tells us if this is a service account (thousands of txs within days).
+    const page = await sigsFor(deployer, { limit: 1000 });
+    const busy = page.length >= 1000 && page[0].blockTime && page[page.length - 1].blockTime && page[0].blockTime - page[page.length - 1].blockTime < 3 * 86400;
+    const sigs = page.filter(s => !s.err).slice(0, cfg.scan.devHistoryTxs);
     const txs = await getTxs(sigs.map(s => s.signature));
     const launches = new Map();
     for (const tx of txs) {
       if (!tx || feePayerOf(tx) !== deployer) continue;
       for (const m of mintsInitialized(tx)) if (!launches.has(m)) launches.set(m, tx.blockTime);
     }
-    found = devCache.set(key, { launches, capped: sigs.length >= cfg.scan.devHistoryTxs });
+    found = devCache.set(key, { launches, capped: sigs.length >= cfg.scan.devHistoryTxs, busy: !!busy });
   }
   const launches = new Map([...found.launches].filter(([m]) => m !== exceptMint));
-  return { launches, capped: found.capped };
+  return { launches, capped: found.capped, busy: found.busy };
 }
 
 // Is each owner a regular wallet, or an account owned by a program (pool, locker, vault)?

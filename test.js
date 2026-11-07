@@ -364,6 +364,32 @@ await test('A bundle that grabbed over half the supply trips even after dumping'
   const r = launchWires({ launch: { deployer: 'D', creationSlot: 5, creationTime: 1, trades: [tr('X1', 0.3 * S), tr('X2', 0.3 * S)] }, funders: new Map(), holdings: new Map(), supply: S, history: null, now: 2 });
   assert.equal(r.bundleWire.tripped, true); assert.match(r.bundleWire.items.join(' '), /pump-and-dump/);
 });
+await test('Busy pump.fun coin: launch rebuilt from its bonding-curve history', async () => {
+  const { reconstructLaunch } = await import('./chain.js');
+  const { findPda } = await import('./pda.js');
+  const CM = 'CurveMint9xKqWv7bRnZ3hJ5cD8fG2sA4LTrippump';
+  sigLists.set(CM, Array.from({ length: 2600 }, (_, i) => ({ signature: 'cbusy' + i, blockTime: now - i, err: null })));
+  const curve = findPda([Buffer.from('bonding-curve'), b58decode(CM)], '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
+  const mk = (sig, slot, w, amt, init) => {
+    txs.set(sig, { slot, blockTime: T0, meta: { err: null, preTokenBalances: [{ accountIndex: 0, mint: CM, owner: w, uiTokenAmount: { amount: '0' } }], postTokenBalances: [{ accountIndex: 0, mint: CM, owner: w, uiTokenAmount: { amount: String(amt) } }], innerInstructions: init ? [{ index: 0, instructions: [{ program: 'spl-token', parsed: { type: 'initializeMint2', info: { mint: CM } } }] }] : [] }, transaction: { signatures: [sig], message: { accountKeys: [{ pubkey: w, signer: true }], instructions: [] } } });
+  };
+  mk('ccreate', 8000, 'CurveDev', 1e12, true); mk('cb1', 8000, 'CB1', 5e13); mk('cs1', 8002, 'CS1', 2e13); mk('corg', 8050, 'COrg', 1e12);
+  sigLists.set(curve, [['corg', 3], ['cs1', 2], ['cb1', 1], ['ccreate', 0]].map(([s, t]) => ({ signature: s, blockTime: T0 + t, err: null })));
+  const L = await reconstructLaunch(CM);
+  assert.equal(L.ok, true); assert.equal(L.viaCurve, true); assert.equal(L.deployer, 'CurveDev'); assert.equal(L.creationSlot, 8000);
+  assert.deepEqual(L.trades.filter(t => t.side === 'buy').map(t => t.wallet).sort(), ['CB1', 'COrg', 'CS1', 'CurveDev']);
+});
+await test('A busy service account (1,000 txs in a day) is flagged as a launchpad', async () => {
+  const { launchesBy } = await import('./chain.js');
+  sigLists.set('BusyPad', Array.from({ length: 1000 }, (_, i) => ({ signature: 'bp' + i, blockTime: now - i * 30, err: null })));
+  const d = await launchesBy('BusyPad', MINT);
+  assert.equal(d.busy, true);
+});
+await test('Dev-only launch buy is not called a bundle', async () => {
+  const { launchWires } = await import('./wires.js');
+  const r = launchWires({ launch: { deployer: 'D', creationSlot: 5, creationTime: 1, trades: [{ wallet: 'D', side: 'buy', amount: 1.79e14, slot: 5, time: 1, sig: 'x' }] }, funders: new Map(), holdings: new Map(), supply: 1e15, history: null, now: 2 });
+  assert.equal(r.bundleWire.tripped, false); assert.match(r.bundleWire.items[0], /Only the dev bought at launch \(17\.9%/);
+});
 await test('Busy coin (2,500+ txs): launch rebuilt from its metadata account and launch blocks', async () => {
   const { reconstructLaunch } = await import('./chain.js');
   const BIG = 'BigMint9xKqWv7bRnZ3hJ5cD8fG2sA4LTrippump';

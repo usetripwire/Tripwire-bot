@@ -61,7 +61,7 @@ async function runScan(mint) {
     const launch = await reconstructLaunch(mint);
     if (!launch.ok) {
       const why = launch.reason === 'too_active'
-        ? `This token has more than ${(cfg.scan.mintSigPagesMax * 1000).toLocaleString('en-US')} transactions and no metadata record to jump to its launch, so the launch can't be rebuilt.`
+        ? `This token has more than ${(cfg.scan.mintSigPagesMax * 1000).toLocaleString('en-US')} transactions and no short record (bonding curve or metadata) that leads to its launch, so the launch can't be rebuilt.`
         : 'Could not read this token\'s launch history.';
       return { bundleWire: na('bundle', 'Bundle', why), sniperWire: na('sniper', 'Sniper', why), devWire: na('dev', 'Dev history', why) };
     }
@@ -71,10 +71,11 @@ async function runScan(mint) {
     // If the fee payer has launched lots of tokens, look for the real creator among the other signers.
     let dev = await launchesBy(launch.deployer, mint).catch(() => null);
     launch.platform = false;
-    if (dev && dev.launches.size >= cfg.t.platformLaunches) {
+    const isPlatform = d => d && (d.busy || d.launches.size >= cfg.t.platformLaunches);
+    if (isPlatform(dev)) {
       const alt = (launch.creationSigners || []).find(s => s !== launch.deployer);
       const altDev = alt ? await launchesBy(alt, mint).catch(() => null) : null;
-      if (alt && altDev && altDev.launches.size < cfg.t.platformLaunches) { launch.launchpad = launch.deployer; launch.deployer = alt; dev = altDev; }
+      if (alt && altDev && !isPlatform(altDev)) { launch.launchpad = launch.deployer; launch.deployer = alt; dev = altDev; }
       else { launch.platform = true; dev = null; }
     }
     const traced = [launch.deployer, ...order.filter(w => w !== launch.deployer)].slice(0, cfg.scan.fundingChecks + 1);

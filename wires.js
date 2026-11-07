@@ -119,8 +119,9 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
   const devFunded = [...bundle].filter(w => w !== deployer && funders.get(w) && funders.get(w).funder === deployer).length;
   const bundleOthers = [...bundle].filter(w => w !== deployer && (bought.get(w) || 0) > 0).length;
   let bundleWire;
-  if (!bundleOthers && bundleBought < 1) {
-    bundleWire = { key: 'bundle', name: 'Bundle', tripped: false, items: ['No linked wallets bought in the launch block or with shared funding.'], brief: 'clear' };
+  if (!bundleOthers) {
+    const devBuy = share(bought.get(deployer) || 0);
+    bundleWire = { key: 'bundle', name: 'Bundle', tripped: false, items: [devBuy >= 0.05 ? `No linked wallets. Only the dev bought at launch (${pct(devBuy)} of supply), which the dev wire covers.` : 'No linked wallets bought in the launch block or with shared funding.'], brief: 'clear' };
   } else {
     const items = [
       `${bundle.size} linked wallets bought ${pct(bundleBought)} of supply at launch (same block or shared funding).`,
