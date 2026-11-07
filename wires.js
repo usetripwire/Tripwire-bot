@@ -215,7 +215,7 @@ export function flowWires({ trades, decimals, priceUsd, fastWallets }) {
   const agentShare = (agentVol / total) * 100;
   const agentWire = {
     key: 'agent', name: 'Agent', tripped: agentShare >= T.agentShare,
-    items: [`About ${pct(agentShare, 0)} of recent volume came from ${agents.length} wallet${agents.length === 1 ? '' : 's'} that trade like bots.`, weak],
+    items: [`About ${pct(agentShare, 0)} of recent volume came from ${agents.length === 1 ? '1 wallet that trades like a bot' : agents.length + ' wallets that trade like bots'}.`, weak],
     brief: `~${pct(agentShare, 0)}`
   };
 

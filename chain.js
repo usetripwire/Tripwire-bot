@@ -1,7 +1,8 @@
 // Reading transactions: who traded a token, who funded a wallet, who created which mints.
 import { rpc, rpcBatch, sigsFor, getTxs } from './rpc.js';
 import { cfg } from './config.js';
-import { TTLCache } from './util.js';
+import { TTLCache, log } from './util.js';
+import { metadataPda } from './pda.js';
 
 export const SYSTEM_PROGRAM = '11111111111111111111111111111111';
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -18,11 +19,11 @@ export const KNOWN_POOL_OWNERS = new Set([
   '1nc1nerator11111111111111111111111111111111'   // burn address
 ]);
 
-export const keysOf = tx => tx.transaction.message.accountKeys.map(k => (typeof k === 'string' ? { pubkey: k, signer: false } : k));
+export const keysOf = tx => ((tx.transaction.message && tx.transaction.message.accountKeys) || tx.transaction.accountKeys || []).map(k => (typeof k === 'string' ? { pubkey: k, signer: false } : k));
 export const feePayerOf = tx => keysOf(tx)[0].pubkey;
 
 export function allInstructions(tx) {
-  const outer = tx.transaction.message.instructions || [];
+  const outer = (tx.transaction.message && tx.transaction.message.instructions) || [];
   const inner = ((tx.meta && tx.meta.innerInstructions) || []).flatMap(i => i.instructions || []);
   return outer.concat(inner);
 }
@@ -58,13 +59,23 @@ export function parseTrades(tx, mint) {
 }
 
 // Walk the mint's history back to its creation and read the launch window.
+// Busy coins: jump straight to the launch through the token's metadata account,
+// then read only the launch block and the few blocks after it.
 export async function reconstructLaunch(mint) {
   let before, all = [], reachedStart = false;
-  for (let p = 0; p < cfg.scan.mintSigPages; p++) {
-    const page = await sigsFor(mint, { limit: 1000, before });
-    all = all.concat(page);
-    if (page.length < 1000) { reachedStart = true; break; }
-    before = page[page.length - 1].signature;
+  const tryPages = async upto => {
+    while (!reachedStart && all.length < upto * 1000) {
+      const page = await sigsFor(mint, { limit: 1000, before });
+      all = all.concat(page);
+      if (page.length < 1000) { reachedStart = true; break; }
+      before = page[page.length - 1].signature;
+    }
+  };
+  await tryPages(cfg.scan.mintSigPages);
+  if (!reachedStart) {
+    const viaMeta = await launchViaMetadata(mint).catch(e => { log('metadata shortcut failed', mint, e.message); return null; });
+    if (viaMeta) return viaMeta;
+    await tryPages(cfg.scan.mintSigPagesMax);
   }
   if (!reachedStart) return { ok: false, reason: 'too_active', txCount: all.length };
   const okSigs = all.filter(s => !s.err);
@@ -81,6 +92,34 @@ export async function reconstructLaunch(mint) {
     creationTime: creation.blockTime,
     trades: txs.flatMap(t => parseTrades(t, mint)),
     txCount: all.length
+  };
+}
+
+async function launchViaMetadata(mint) {
+  const meta = metadataPda(mint);
+  if (!meta) return null;
+  const sigs = (await sigsFor(meta, { limit: 1000 })).filter(s => !s.err);
+  if (!sigs.length || sigs.length >= 1000) return null;
+  const [creation] = await getTxs([sigs[sigs.length - 1].signature]);
+  if (!creation) return null;
+  const slots = [];
+  for (let s = creation.slot; s <= creation.slot + cfg.scan.sniperSlots; s++) slots.push(s);
+  const blocks = await rpcBatch(slots.map(s => ['getBlock', [s, { encoding: 'jsonParsed', transactionDetails: 'accounts', maxSupportedTransactionVersion: 0, rewards: false, commitment: 'confirmed' }]]), 1);
+  const seenSig = new Set();
+  const trades = [];
+  const add = t => { if (!seenSig.has(t.sig + t.wallet)) { seenSig.add(t.sig + t.wallet); trades.push(t); } };
+  parseTrades(creation, mint).forEach(add);
+  blocks.forEach((b, i) => {
+    if (!b) return;
+    for (const t of b.transactions || []) parseTrades({ slot: slots[i], blockTime: b.blockTime, meta: t.meta, transaction: t.transaction }, mint).forEach(add);
+  });
+  return {
+    ok: true, viaBlocks: true,
+    deployer: feePayerOf(creation),
+    creationSigners: keysOf(creation).filter(k => k.signer).map(k => k.pubkey),
+    creationSlot: creation.slot,
+    creationTime: creation.blockTime,
+    trades
   };
 }
 

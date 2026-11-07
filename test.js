@@ -7,7 +7,7 @@ import fs from 'node:fs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-'));
 Object.assign(process.env, {
-  RPC_URL: 'https://rpc.test', RPC_RPS: '100000', TRIP_MINT: 'TripMint111', RADAR_WATCH_ACCOUNT: 'MigrAcct', RADAR_SCAN_DELAY_SEC: '0', RADAR_MIN_LIQ_USD: '10000', RADAR_PUBLIC_DELAY_MIN: '15', RADAR_STORE_PATH: path.join(tmp, 'radar.json'), SESSION_SECRET: 'test-secret', SITE_URL: 'https://tripwirescan.com',  ALLOWED_ORIGINS: 'https://tripwirescan.com'
+  RPC_URL: 'https://rpc.test', MINT_SIG_PAGES: '1', MINT_SIG_PAGES_MAX: '2', RPC_RPS: '100000', TRIP_MINT: 'TripMint111', RADAR_WATCH_ACCOUNT: 'MigrAcct', RADAR_SCAN_DELAY_SEC: '0', RADAR_MIN_LIQ_USD: '10000', RADAR_PUBLIC_DELAY_MIN: '15', RADAR_STORE_PATH: path.join(tmp, 'radar.json'), SESSION_SECRET: 'test-secret', SITE_URL: 'https://tripwirescan.com',  ALLOWED_ORIGINS: 'https://tripwirescan.com'
 });
 
 /* ---------- fixture world ---------- */
@@ -21,6 +21,7 @@ const txs = new Map();
 const sigLists = new Map(); // address -> [{signature, blockTime, err}] newest first
 const holdings = new Map();
 const tripBal = new Map();
+const blocks = new Map();
 const pushSig = (addr, sig, time) => { if (!sigLists.has(addr)) sigLists.set(addr, []); sigLists.get(addr).push({ signature: sig, blockTime: time, err: null }); };
 
 function mkTx({ sig, slot, time, payer, changes, inner = [], extraSigners = [] }) {
@@ -112,6 +113,7 @@ function rpcAnswer({ method, params }) {
       return list.slice(start, start + ((opts && opts.limit) || 1000));
     }
     case 'getTransaction': return txs.get(a) || null;
+    case 'getBlock': return blocks.get(a) || null;
     case 'getTokenAccountsByOwner': {
       if (opts && opts.mint === 'TripMint111') {
         const ui = tripBal.get(a) || 0;
@@ -324,6 +326,40 @@ await test('Free-plan RPC that rejects batches: falls back to single requests', 
   const r = await rpcBatch([['getAccountInfo', [MINT, { encoding: 'jsonParsed' }]], ['getTransaction', ['create', {}]]]);
   globalThis.rejectBatch = false;
   assert.equal(r[0].value.owner, 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'); assert.equal(r[1].slot, 1000);
+});
+
+
+/* ---------- busy coins: metadata shortcut ---------- */
+const { isOnCurve, metadataPda } = await import('./pda.js');
+await test('Curve check: real wallet keys are on the curve', () => {
+  for (let i = 0; i < 25; i++) {
+    const { publicKey } = crypto.generateKeyPairSync('ed25519');
+    assert.equal(isOnCurve(publicKey.export({ format: 'der', type: 'spki' }).subarray(-32)), true);
+  }
+});
+await test('Curve check: about half of random hashes are off the curve', () => {
+  let off = 0;
+  for (let i = 0; i < 200; i++) if (!isOnCurve(crypto.randomBytes(32))) off++;
+  assert.ok(off > 60 && off < 140, String(off));
+});
+await test('Busy coin (2,500+ txs): launch rebuilt from its metadata account and launch blocks', async () => {
+  const { reconstructLaunch } = await import('./chain.js');
+  const BIG = 'BigMint9xKqWv7bRnZ3hJ5cD8fG2sA4LTrippump';
+  sigLists.set(BIG, Array.from({ length: 2600 }, (_, i) => ({ signature: 'busy' + i, blockTime: now - i, err: null })));
+  const META = metadataPda(BIG);
+  assert.ok(META);
+  sigLists.set(META, [{ signature: 'bigcreate', blockTime: T0, err: null }]);
+  const keys = w => [{ pubkey: w, signer: true }, { pubkey: POOL, signer: false }];
+  const bal = (w, amt) => ({ pre: [{ accountIndex: 0, mint: BIG, owner: w, uiTokenAmount: { amount: '0' } }], post: [{ accountIndex: 0, mint: BIG, owner: w, uiTokenAmount: { amount: String(amt) } }] });
+  const btx = (w, amt) => { const b = bal(w, amt); return { meta: { err: null, preTokenBalances: b.pre, postTokenBalances: b.post }, transaction: { signatures: ['b' + w], accountKeys: keys(w) } }; };
+  const cb = bal('BigDev', 2 * P);
+  txs.set('bigcreate', { slot: 7000, blockTime: T0, meta: { err: null, preTokenBalances: cb.pre, postTokenBalances: cb.post, innerInstructions: [{ index: 0, instructions: [{ program: 'spl-token', parsed: { type: 'initializeMint2', info: { mint: BIG } } }] }] }, transaction: { signatures: ['bigcreate'], message: { accountKeys: keys('BigDev'), instructions: [] } } });
+  blocks.set(7000, { blockTime: T0, transactions: [btx('BX1', 5 * P), btx('BX2', 5 * P), { meta: { err: null, preTokenBalances: [], postTokenBalances: [] }, transaction: { signatures: ['other'], accountKeys: keys('Rando') } }] });
+  blocks.set(7002, { blockTime: T0 + 1, transactions: [btx('SN1', 3 * P)] });
+  const L = await reconstructLaunch(BIG);
+  assert.equal(L.ok, true); assert.equal(L.viaBlocks, true); assert.equal(L.deployer, 'BigDev'); assert.equal(L.creationSlot, 7000);
+  const buyers = L.trades.filter(t => t.side === 'buy').map(t => t.wallet).sort();
+  assert.deepEqual(buyers, ['BX1', 'BX2', 'BigDev', 'SN1']);
 });
 
 for (const [s, n] of results) console.log(s, n);

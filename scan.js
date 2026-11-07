@@ -61,7 +61,7 @@ async function runScan(mint) {
     const launch = await reconstructLaunch(mint);
     if (!launch.ok) {
       const why = launch.reason === 'too_active'
-        ? `This token has more than ${(cfg.scan.mintSigPages * 1000).toLocaleString('en-US')} transactions, too many to rebuild its launch in one scan.`
+        ? `This token has more than ${(cfg.scan.mintSigPagesMax * 1000).toLocaleString('en-US')} transactions and no metadata record to jump to its launch, so the launch can't be rebuilt.`
         : 'Could not read this token\'s launch history.';
       return { bundleWire: na('bundle', 'Bundle', why), sniperWire: na('sniper', 'Sniper', why), devWire: na('dev', 'Dev history', why) };
     }
@@ -100,15 +100,18 @@ async function runScan(mint) {
       return { agentWire: na('agent', 'Agent', why), washWire: na('wash', 'Wash', why) };
     }
     // Read recent pool transactions; go further back if the coin trades slowly.
-    let trades = [], before, read = 0;
-    while (read < cfg.scan.recentTxsMax) {
-      const page = await sigsFor(pair.pairAddress, { limit: cfg.scan.recentTxs, before });
+    // Busy pools are full of failed bot transactions, so only successful ones count toward the budget.
+    let trades = [], before, read = 0, pagesRead = 0;
+    while (read < cfg.scan.recentTxsMax && pagesRead < 15) {
+      const page = await sigsFor(pair.pairAddress, { limit: 200, before });
+      pagesRead++;
       if (!page.length) break;
-      read += page.length;
       before = page[page.length - 1].signature;
-      const txs = await getTxs(page.filter(s => !s.err).map(s => s.signature));
+      const ok = page.filter(s => !s.err).slice(0, cfg.scan.recentTxsMax - read);
+      read += ok.length;
+      const txs = await getTxs(ok.map(s => s.signature));
       trades = trades.concat(txs.flatMap(tx => parseTrades(tx, mint)));
-      if (trades.length >= cfg.t.minFlowTrades * 2 || page.length < cfg.scan.recentTxs) break;
+      if (trades.length >= cfg.t.lowFlowTrades * 3 || page.length < 200) break;
     }
     // Check the busiest wallets' overall transaction rate (1000 txs in under a day = automated)
     const vol = new Map();

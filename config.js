@@ -36,7 +36,8 @@ export const cfg = {
 
   // How much on-chain history each scan reads. Higher = more accurate, more RPC credits.
   scan: {
-    mintSigPages: num('MINT_SIG_PAGES', 60),        // x1000 signatures to walk back to the launch
+    mintSigPages: num('MINT_SIG_PAGES', 20),        // x1000 signatures read before trying the metadata shortcut
+    mintSigPagesMax: num('MINT_SIG_PAGES_MAX', 150), // keep paging this far if the shortcut can't be used
     earlyTxs: num('EARLY_TXS', 60),                // launch transactions analysed
     sniperSlots: num('SNIPER_SLOTS', 3),            // blocks after creation that count as sniping
     fundingChecks: num('FUNDING_CHECKS', 15),       // early buyers whose funding we trace
