@@ -169,7 +169,7 @@ await test('full scan completes', async () => { result = await scan(MINT); asser
 const get = k => result.checks.find(c => c.key === k);
 await test('Bundle trips: dev + 4 linked wallets, 16% still held', () => {
   const c = get('bundle'); assert.equal(c.tripped, true, c.items.join(' | '));
-  assert.match(c.items.join(' '), /bought 19\.0%/); assert.match(c.items.join(' '), /still hold 16\.0%/);
+  assert.match(c.items.join(' '), /held up to 19\.0%/); assert.match(c.items.join(' '), /still hold 16\.0%/);
   assert.match(c.items.join(' '), /2 of them were funded directly by the deployer/);
 });
 await test('Sniper: 2 snipers, 3% still held -> clear', () => {
@@ -393,6 +393,13 @@ await test('A busy service account (1,000 txs in a day) is flagged as a launchpa
   sigLists.set('BusyPad', Array.from({ length: 1000 }, (_, i) => ({ signature: 'bp' + i, blockTime: now - i * 30, err: null })));
   const d = await launchesBy('BusyPad', MINT);
   assert.equal(d.busy, true);
+});
+await test('Buy-sell-buy flipping counts the peak position, not every buy', async () => {
+  const { launchWires } = await import('./wires.js');
+  const S = 1e15, tr = (w, side, a, slot) => ({ wallet: w, side, amount: a, slot, time: slot, sig: w + slot });
+  const trades = [tr('F1', 'buy', 0.2 * S, 5), tr('F1', 'sell', 0.2 * S, 6), tr('F1', 'buy', 0.2 * S, 7), tr('F2', 'buy', 0.1 * S, 5)];
+  const r = launchWires({ launch: { deployer: 'D', creationSlot: 5, creationTime: 1, trades }, funders: new Map(), holdings: new Map(), supply: S, history: null, now: 9 });
+  assert.match(r.bundleWire.items[0], /held up to 30\.0%/);
 });
 await test('Dev-only launch buy is not called a bundle', async () => {
   const { launchWires } = await import('./wires.js');

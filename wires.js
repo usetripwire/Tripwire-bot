@@ -95,9 +95,16 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
   const buys = trades.filter(t => t.side === 'buy');
   const bought = new Map();
   const firstSlot = new Map();
-  for (const t of buys) {
-    bought.set(t.wallet, (bought.get(t.wallet) || 0) + t.amount);
-    if (!firstSlot.has(t.wallet)) firstSlot.set(t.wallet, t.slot);
+  for (const t of buys) if (!firstSlot.has(t.wallet)) firstSlot.set(t.wallet, t.slot);
+  // "Bought" = each wallet's peak position during the launch window, so buy-sell-buy flipping
+  // isn't counted twice. Mints count toward the position (they're tokens the wallet controlled).
+  const running = new Map();
+  const ordered = trades.slice().sort((a, b) => a.slot - b.slot);
+  for (const t of ordered) {
+    if (t.side === 'lp') continue;
+    const cur = (running.get(t.wallet) || 0) + (t.side === 'sell' ? -t.amount : t.side === 'buy' ? t.amount : 0);
+    running.set(t.wallet, Math.max(0, cur));
+    if (t.side === 'buy') bought.set(t.wallet, Math.max(bought.get(t.wallet) || 0, running.get(t.wallet)));
   }
   const sold = new Map();
   for (const t of trades.filter(t => t.side === 'sell')) sold.set(t.wallet, (sold.get(t.wallet) || 0) + t.amount);
@@ -124,7 +131,7 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
     bundleWire = { key: 'bundle', name: 'Bundle', tripped: false, items: [devBuy >= 0.05 ? `No linked wallets. Only the dev bought at launch (${pct(devBuy)} of supply), which the dev wire covers.` : 'No linked wallets bought in the launch block or with shared funding.'], brief: 'clear' };
   } else {
     const items = [
-      `${bundle.size} linked wallets bought ${pct(bundleBought)} of supply at launch (same block or shared funding).`,
+      `${bundle.size} linked wallets held up to ${pct(bundleBought)} of supply at launch (same block or shared funding).`,
       `They still hold ${pct(bundleHeld)}.`
     ];
     if (devFunded) items.push(`${devFunded} of them were funded directly by the deployer.`);
@@ -145,7 +152,7 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
     sniperWire = {
       key: 'sniper', name: 'Sniper', tripped: share(sHeld) >= T.sniperHeld,
       items: [
-        `${snipers.length} wallets sniped ${pct(share(sBought))} of supply in the first ${cfg.scan.sniperSlots} blocks.`,
+        `${snipers.length === 1 ? '1 wallet' : snipers.length + ' wallets'} sniped ${pct(share(sBought))} of supply in the first ${cfg.scan.sniperSlots} blocks.`,
         `They still hold ${pct(share(sHeld))} (about ${pct(soldShare, 0)} already sold).`
       ],
       brief: `hold ${pct(share(sHeld), 0)}`
@@ -177,7 +184,7 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
         brief = `${dead.length}/${aged.length} past dead`;
         if (aged.length >= T.devMinLaunches && (dead.length / aged.length) * 100 >= T.devDeadShare) tripped = true;
       } else {
-        items.push(`Deployer launched ${past.length} other token${past.length === 1 ? '' : 's'}${scope} in the last day, too recent to judge how they ended.`);
+        items.push(`Deployer launched ${past.length} other token${past.length === 1 ? '' : 's'} in the last day, too recent to judge how they ended.`);
         brief = `${past.length} recent launches`;
       }
       if (recent >= T.serialLaunches) { tripped = true; items.push(`That's ${recent} launches in under a day: a serial launcher.`); brief = `${recent} launches/day`; }
