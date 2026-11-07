@@ -28,6 +28,7 @@ async function runScan(mint) {
     rpc('getAccountInfo', [mint, { encoding: 'jsonParsed', commitment: 'confirmed' }]),
     pairsFor(mint),
     rpc('getTokenLargestAccounts', [mint, { commitment: 'confirmed' }])
+      .catch(() => new Promise(r => setTimeout(r, 1500)).then(() => rpc('getTokenLargestAccounts', [mint, { commitment: 'confirmed' }])))
   ]);
   if (mintR.status === 'rejected') throw new ScanError('rpc', 'Could not reach Solana right now.');
   const acc = mintR.value && mintR.value.value;
@@ -50,6 +51,7 @@ async function runScan(mint) {
   const authority = authorityWire(acc);
   const exit = pairs ? exitWire(pairs) : na('exit', 'Exit', 'DexScreener did not respond, so pool depth could not be checked.');
   let holders = na('holders', 'Holders', 'The RPC refused the holder lookup. Try again shortly.');
+  if (largestR.status === 'rejected') log('holders lookup failed', mint, largestR.reason && largestR.reason.message);
   if (largestR.status === 'fulfilled' && largestR.value && largestR.value.value) {
     const largest = largestR.value.value;
     try {
@@ -57,7 +59,7 @@ async function runScan(mint) {
       const owners = ((tokAccs[0] && tokAccs[0].value) || []).map(a => (a && a.data && a.data.parsed ? a.data.parsed.info.owner : ''));
       const kinds = await ownerKinds(owners);
       holders = holdersWire(largest, owners, kinds, supply, poolSet, { established });
-    } catch { /* keep n/a */ }
+    } catch (e) { log('holders failed', mint, e.message); }
   }
 
   // Launch wires and flow wires run in parallel

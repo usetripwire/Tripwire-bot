@@ -470,6 +470,12 @@ await test('Pool claiming more liquidity than the market cap is not trusted', as
     { dexId: 'meteora', pairAddress: 'TINY', liquidity: { usd: 391 }, volume: { h24: 9000 }, marketCap: 2e6 }
   ]);
   assert.equal(ok[0].pairAddress, 'DEEP'); assert.ok(!ok.some(p => p._suspect));
+  // A pool that holds most of the supply (real MYRO case: $138K liquidity, $124K market cap) is kept
+  const most = rankPairs([
+    { dexId: 'raydium', pairAddress: 'MOST', liquidity: { usd: 138130 }, volume: { h24: 20 }, marketCap: 124141 },
+    { dexId: 'raydium', pairAddress: 'DUST', liquidity: { usd: 391 }, volume: { h24: 300 }, marketCap: 124000 }
+  ]);
+  assert.equal(most[0].pairAddress, 'MOST'); assert.ok(!most.some(p => p._suspect));
 });
 
 for (const [s, n] of results) console.log(s, n);
