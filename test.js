@@ -174,7 +174,7 @@ await test('Sniper: 2 snipers, 3% still held -> clear', () => {
   const c = get('sniper'); assert.equal(c.tripped, false, c.items.join(' | ')); assert.match(c.items.join(' '), /2 wallets sniped 6\.0%/);
 });
 await test('Dev trips: 5 of 6 past launches dead', () => {
-  const c = get('dev'); assert.equal(c.tripped, true, c.items.join(' | ')); assert.match(c.items.join(' '), /5 of 6 older ones are dead/);
+  const c = get('dev'); assert.equal(c.tripped, true, c.items.join(' | ')); assert.match(c.items.join(' '), /5 of the 6 older than a day are dead/);
 });
 await test('Wash trips on the round-tripping wallet', () => { const c = get('wash'); assert.equal(c.tripped, true, c.items.join(' | ')); });
 await test('Agent trips (steady 30s buyer + 1000-tx/day wallet)', () => { const c = get('agent'); assert.equal(c.tripped, true, c.items.join(' | ')); });
@@ -288,6 +288,30 @@ await test('Rate-limited items inside a batch are retried instead of dropped', a
   globalThis.throttleFirst = 2;
   const r = await rpcBatch([['getTransaction', ['create', {}]], ['getTransaction', ['bundle0', {}]], ['getTransaction', ['bundle1', {}]]]);
   assert.equal(r.filter(Boolean).length, 3);
+});
+await test('Bags-style curve with no liquidity reported: Exit n/a, not tripped', async () => {
+  const { exitWire } = await import('./wires.js');
+  const c = exitWire([{ dexId: 'bags', liquidity: { usd: 0 } }]);
+  assert.equal(c.na, true); assert.equal(c.tripped, false); assert.match(c.items[0], /bags launch curve/);
+});
+await test('Shared launchpad deployer is not judged as the dev', async () => {
+  const { launchWires } = await import('./wires.js');
+  const base = { deployer: 'Pad', creationSlot: 1, creationTime: 1, trades: [], platform: true };
+  const r = launchWires({ launch: base, funders: new Map(), holdings: new Map(), supply: 1e15, history: null, now: 2 });
+  assert.equal(r.devWire.tripped, false); assert.match(r.devWire.items.join(' '), /shared launchpad account/);
+});
+await test('Serial launcher (6 launches today) trips Dev', async () => {
+  const { launchWires } = await import('./wires.js');
+  const now = 1e6;
+  const launches = new Map(Array.from({ length: 6 }, (_, i) => ['M' + i, now - 3600]));
+  const r = launchWires({ launch: { deployer: 'D', creationSlot: 1, creationTime: now, trades: [] }, funders: new Map(), holdings: new Map(), supply: 1e15, history: { launches, liquidity: new Map(), capped: false }, now });
+  assert.equal(r.devWire.tripped, true); assert.match(r.devWire.items.join(' '), /serial launcher/);
+});
+await test('Slow coin with 8 trades: Agent/Wash still judge, with a weak-signal note', async () => {
+  const { flowWires } = await import('./wires.js');
+  const trades = Array.from({ length: 8 }, (_, i) => ({ wallet: 'W' + i, side: 'buy', amount: 1e9, slot: i, time: 1000 + i * 97 }));
+  const r = flowWires({ trades, decimals: 6, priceUsd: 0.001, fastWallets: new Set() });
+  assert.equal(r.agentWire.na, undefined); assert.match(r.agentWire.items[1], /weak signal/); assert.equal(r.washWire.tripped, false);
 });
 await test('Bonding-curve coin: Exit shows n/a instead of a false trip', async () => {
   const { exitWire } = await import('./wires.js');

@@ -36,7 +36,7 @@ export const cfg = {
 
   // How much on-chain history each scan reads. Higher = more accurate, more RPC credits.
   scan: {
-    mintSigPages: num('MINT_SIG_PAGES', 20),        // x1000 signatures to walk back to the launch
+    mintSigPages: num('MINT_SIG_PAGES', 60),        // x1000 signatures to walk back to the launch
     earlyTxs: num('EARLY_TXS', 60),                // launch transactions analysed
     sniperSlots: num('SNIPER_SLOTS', 3),            // blocks after creation that count as sniping
     fundingChecks: num('FUNDING_CHECKS', 15),       // early buyers whose funding we trace
@@ -81,7 +81,10 @@ export const cfg = {
     deadLiqUsd: num('T_DEAD_LIQ_USD', 1000),
     agentShare: num('T_AGENT_SHARE', 50),          // % of recent volume
     washShare: num('T_WASH_SHARE', 30),            // % of recent volume
-    minFlowTrades: num('T_MIN_FLOW_TRADES', 15),
+    minFlowTrades: num('T_MIN_FLOW_TRADES', 5),
+    lowFlowTrades: num('T_LOW_FLOW_TRADES', 15),      // below this, agent/wash carry a weak-signal note
+    platformLaunches: num('T_PLATFORM_LAUNCHES', 15), // a 'deployer' with this many launches is a launchpad account
+    serialLaunches: num('T_SERIAL_LAUNCHES', 5),      // a real dev with this many very recent launches is a serial launcher
     top10: num('T_TOP10', 30),
     single: num('T_SINGLE', 10),
     minLiqUsd: num('T_MIN_LIQ_USD', 10000),

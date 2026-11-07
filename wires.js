@@ -54,8 +54,9 @@ export function exitWire(pairs) {
   if (!pairs.length) return { key: 'exit', name: 'Exit', tripped: true, items: ['No trading pool found on DexScreener. You may not be able to sell.'], brief: 'no pool' };
   const p = pairs[0];
   const liq = (p.liquidity && p.liquidity.usd) || 0;
-  if (!liq && p.dexId === 'pumpfun') {
-    return { key: 'exit', name: 'Exit', na: true, tripped: false, items: ['Still on the pump.fun bonding curve, so sells go back into the curve instead of a pool. Pool depth is checked after it graduates.'], brief: 'on curve' };
+  if (!liq) {
+    const where = p.dexId === 'pumpfun' ? 'the pump.fun bonding curve' : p.dexId ? `a ${p.dexId} launch curve` : 'a launch curve';
+    return { key: 'exit', name: 'Exit', na: true, tripped: false, items: [`Still on ${where}, which doesn't report pool liquidity, so sells go back into the curve. Pool depth is checked after it graduates.`], brief: 'on curve' };
   }
   const q = liq / 2; // constant-product estimate: quote side is about half the pool's value
   const slip = q > 0 ? (T.sellUsd / (q + T.sellUsd)) * 100 : 100;
@@ -154,15 +155,27 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
   if (devBought > 0) items.push(held(deployer) < devBought * 0.5 ? `Dev has sold most of their launch buy (${pct(share(devBought))} of supply).` : `Dev still holds most of their launch buy.`);
   let tripped = devHeld >= T.devHeld;
   let brief = `holds ${pct(devHeld, 0)}`;
-  if (history) {
+  if (launch.launchpad) items.push(`Launched through a launchpad account (${short(launch.launchpad)}); checking the creator who co-signed instead.`);
+  if (launch.platform) {
+    items.push('Created through a shared launchpad account that launches tokens for many people, so its history says nothing about this dev.');
+  } else if (history) {
     const past = [...history.launches.entries()];
     const aged = past.filter(([, t]) => t && now - t > 86400);
+    const recent = past.length - aged.length;
     const dead = aged.filter(([m]) => (history.liquidity.get(m) || 0) < T.deadLiqUsd);
-    if (past.length) {
-      items.push(`Deployer launched ${past.length} other token${past.length === 1 ? '' : 's'}${history.capped ? ' in their recent history' : ''}; ${dead.length} of ${aged.length} older ones are dead (under ${usd(T.deadLiqUsd)} liquidity).`);
-      brief = `${dead.length}/${aged.length} past dead`;
-      if (aged.length >= T.devMinLaunches && (dead.length / aged.length) * 100 >= T.devDeadShare) tripped = true;
-    } else items.push('No other launches found from this deployer.');
+    if (!past.length) items.push('No other launches found from this deployer.');
+    else {
+      const scope = history.capped ? ' in their recent history' : '';
+      if (aged.length) {
+        items.push(`Deployer launched ${past.length} other token${past.length === 1 ? '' : 's'}${scope}; ${dead.length} of the ${aged.length} older than a day ${dead.length === 1 ? 'is' : 'are'} dead (under ${usd(T.deadLiqUsd)} liquidity).`);
+        brief = `${dead.length}/${aged.length} past dead`;
+        if (aged.length >= T.devMinLaunches && (dead.length / aged.length) * 100 >= T.devDeadShare) tripped = true;
+      } else {
+        items.push(`Deployer launched ${past.length} other token${past.length === 1 ? '' : 's'}${scope} in the last day, too recent to judge how they ended.`);
+        brief = `${past.length} recent launches`;
+      }
+      if (recent >= T.serialLaunches) { tripped = true; items.push(`That's ${recent} launches in under a day: a serial launcher.`); brief = `${recent} launches/day`; }
+    }
   }
   const df = funders.get(deployer);
   if (df && df.firstTime && creationTime && creationTime - df.firstTime < 86400) items.push('Deployer wallet was created less than a day before launch.');
@@ -175,7 +188,7 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
 export function flowWires({ trades, decimals, priceUsd, fastWallets }) {
   const nt = trades.length;
   if (nt < T.minFlowTrades) {
-    const why = `Only ${nt} recent trades found, which isn't enough to judge.`;
+    const why = nt ? `Only ${nt} trade${nt === 1 ? '' : 's'} in this coin's recent history, which is too little to judge.` : 'No trades found in this coin\'s recent history.';
     return { agentWire: na('agent', 'Agent', why), washWire: na('wash', 'Wash', why) };
   }
   const val = t => (t.amount / 10 ** decimals) * (priceUsd || 0) || t.amount; // fall back to raw size if price unknown
@@ -185,6 +198,7 @@ export function flowWires({ trades, decimals, priceUsd, fastWallets }) {
     byWallet.get(t.wallet).push(t);
   }
   const total = sum(trades.map(val)) || 1;
+  const weak = nt < T.lowFlowTrades ? `Low activity: only ${nt} trades to read, so treat this as a weak signal.` : `Based on the last ${nt} trades (estimate).`;
 
   // Agent: steady cadence, bursts, or a wallet that transacts ~1000+ times a day
   const agents = [];
@@ -201,7 +215,7 @@ export function flowWires({ trades, decimals, priceUsd, fastWallets }) {
   const agentShare = (agentVol / total) * 100;
   const agentWire = {
     key: 'agent', name: 'Agent', tripped: agentShare >= T.agentShare,
-    items: [`About ${pct(agentShare, 0)} of recent volume came from ${agents.length} wallet${agents.length === 1 ? '' : 's'} that trade like bots.`, `Based on the last ${nt} trades (estimate).`],
+    items: [`About ${pct(agentShare, 0)} of recent volume came from ${agents.length} wallet${agents.length === 1 ? '' : 's'} that trade like bots.`, weak],
     brief: `~${pct(agentShare, 0)}`
   };
 
@@ -217,7 +231,7 @@ export function flowWires({ trades, decimals, priceUsd, fastWallets }) {
   const washShare = (washVol / total) * 100;
   const washWire = {
     key: 'wash', name: 'Wash', tripped: washShare >= T.washShare,
-    items: [`About ${pct(washShare, 0)} of recent volume is ${washers.length} wallet${washers.length === 1 ? '' : 's'} buying and selling the same size back and forth.`, `Based on the last ${nt} trades (estimate).`],
+    items: [`About ${pct(washShare, 0)} of recent volume is ${washers.length} wallet${washers.length === 1 ? '' : 's'} buying and selling the same size back and forth.`, weak],
     brief: `~${pct(washShare, 0)} of vol`
   };
   return { agentWire, washWire };

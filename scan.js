@@ -67,12 +67,18 @@ async function runScan(mint) {
     }
     const order = [];
     for (const t of launch.trades) if (t.side === 'buy' && !order.includes(t.wallet)) order.push(t.wallet);
+    // Launchpads (Bags, some others) pay for the launch from one shared account.
+    // If the fee payer has launched lots of tokens, look for the real creator among the other signers.
+    let dev = await launchesBy(launch.deployer, mint).catch(() => null);
+    launch.platform = false;
+    if (dev && dev.launches.size >= cfg.t.platformLaunches) {
+      const alt = (launch.creationSigners || []).find(s => s !== launch.deployer);
+      const altDev = alt ? await launchesBy(alt, mint).catch(() => null) : null;
+      if (alt && altDev && altDev.launches.size < cfg.t.platformLaunches) { launch.launchpad = launch.deployer; launch.deployer = alt; dev = altDev; }
+      else { launch.platform = true; dev = null; }
+    }
     const traced = [launch.deployer, ...order.filter(w => w !== launch.deployer)].slice(0, cfg.scan.fundingChecks + 1);
-    const [funders, holdings, dev] = await Promise.all([
-      fundersFor(traced),
-      holdingsOf(traced, mint),
-      launchesBy(launch.deployer, mint).catch(() => null)
-    ]);
+    const [funders, holdings] = await Promise.all([fundersFor(traced), holdingsOf(traced, mint)]);
     let history = null;
     if (dev) {
       const mints = [...dev.launches.keys()].slice(0, 60);

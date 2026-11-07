@@ -76,6 +76,7 @@ export async function reconstructLaunch(mint) {
   return {
     ok: true,
     deployer: feePayerOf(creation),
+    creationSigners: keysOf(creation).filter(k => k.signer).map(k => k.pubkey),
     creationSlot: creation.slot,
     creationTime: creation.blockTime,
     trades: txs.flatMap(t => parseTrades(t, mint)),
