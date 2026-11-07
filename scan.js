@@ -4,7 +4,7 @@ import { rpc, rpcBatch, sigsFor, getTxs } from './rpc.js';
 import { pairsFor, liquidityFor } from './dex.js';
 import { TOKEN_PROGRAM, TOKEN_2022, reconstructLaunch, fundersFor, holdingsOf, launchesBy, ownerKinds, parseTrades } from './chain.js';
 import { authorityWire, holdersWire, exitWire, launchWires, flowWires } from './wires.js';
-import { TTLCache, ScanError, B58, createLimiter } from './util.js';
+import { TTLCache, ScanError, B58, createLimiter, log } from './util.js';
 
 const cache = new TTLCache(2000, cfg.scan.cacheMinutes * 60e3);
 const inflight = new Map();
@@ -83,8 +83,8 @@ async function runScan(mint) {
     const scoped = { ...launch, trades: launch.trades.filter(t => tracedSet.has(t.wallet)) };
     return launchWires({ launch: scoped, funders, holdings, supply, history, now });
   })().catch(e => {
-    if (process.env.DEBUG) console.error('launch error', e);
-    const why = 'The launch history lookup failed. Try again shortly.';
+    log('launch wires failed', mint, e.message);
+    const why = /rate_limited/.test(e.message) ? 'Our Solana data provider is busy right now. Try again in a minute.' : 'The launch history lookup failed. Try again shortly.';
     return { bundleWire: na('bundle', 'Bundle', why), sniperWire: na('sniper', 'Sniper', why), devWire: na('dev', 'Dev history', why) };
   });
 
@@ -108,8 +108,8 @@ async function runScan(mint) {
     });
     return flowWires({ trades, decimals, priceUsd: Number(pair.priceUsd) || 0, fastWallets });
   })().catch(e => {
-    if (process.env.DEBUG) console.error('flow error', e);
-    const why = 'Recent trades could not be read. Try again shortly.';
+    log('trade wires failed', mint, e.message);
+    const why = /rate_limited/.test(e.message) ? 'Our Solana data provider is busy right now. Try again in a minute.' : 'Recent trades could not be read. Try again shortly.';
     return { agentWire: na('agent', 'Agent', why), washWire: na('wash', 'Wash', why) };
   });
 

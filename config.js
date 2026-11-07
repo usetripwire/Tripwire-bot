@@ -37,13 +37,16 @@ export const cfg = {
   // How much on-chain history each scan reads. Higher = more accurate, more RPC credits.
   scan: {
     mintSigPages: num('MINT_SIG_PAGES', 20),        // x1000 signatures to walk back to the launch
-    earlyTxs: num('EARLY_TXS', 100),                // launch transactions analysed
+    earlyTxs: num('EARLY_TXS', 60),                // launch transactions analysed
     sniperSlots: num('SNIPER_SLOTS', 3),            // blocks after creation that count as sniping
-    fundingChecks: num('FUNDING_CHECKS', 30),       // early buyers whose funding we trace
-    devHistoryTxs: num('DEV_HISTORY_TXS', 150),     // deployer transactions searched for past launches
-    recentTxs: num('RECENT_TXS', 120),              // recent pool transactions for agent + wash
-    agentWalletChecks: num('AGENT_WALLET_CHECKS', 12),
-    rpcConcurrency: num('RPC_CONCURRENCY', 6),
+    fundingChecks: num('FUNDING_CHECKS', 15),       // early buyers whose funding we trace
+    devHistoryTxs: num('DEV_HISTORY_TXS', 60),     // deployer transactions searched for past launches
+    recentTxs: num('RECENT_TXS', 60),              // recent pool transactions for agent + wash
+    agentWalletChecks: num('AGENT_WALLET_CHECKS', 6),
+    rpcConcurrency: num('RPC_CONCURRENCY', 4),
+    rpcRps: num('RPC_RPS', 8),                       // requests per second (Helius free plan allows ~10)
+    rpcBatch: bool('RPC_BATCH', true),              // set false if your RPC plan rejects batch requests
+    batchSize: num('RPC_BATCH_SIZE', 10),
     cacheMinutes: num('CACHE_MINUTES', 10)
   },
 
@@ -58,7 +61,7 @@ export const cfg = {
     logMatch: env('RADAR_LOG_MATCH', 'migrate'),        // log text that marks a graduation
     pollSeconds: num('RADAR_POLL_SECONDS', 30),
     scanDelaySec: num('RADAR_SCAN_DELAY_SEC', 120),     // wait for some trading before scanning
-    maxScansPerHour: num('RADAR_MAX_SCANS_PER_HOUR', 12),
+    maxScansPerHour: num('RADAR_MAX_SCANS_PER_HOUR', 4),
     minLiqUsd: num('RADAR_MIN_LIQ_USD', 15000),         // skip coins with less pool liquidity
     publicDelayMin: num('RADAR_PUBLIC_DELAY_MIN', 15),
     publicLimit: num('RADAR_PUBLIC_LIMIT', 3),

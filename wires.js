@@ -54,6 +54,9 @@ export function exitWire(pairs) {
   if (!pairs.length) return { key: 'exit', name: 'Exit', tripped: true, items: ['No trading pool found on DexScreener. You may not be able to sell.'], brief: 'no pool' };
   const p = pairs[0];
   const liq = (p.liquidity && p.liquidity.usd) || 0;
+  if (!liq && p.dexId === 'pumpfun') {
+    return { key: 'exit', name: 'Exit', na: true, tripped: false, items: ['Still on the pump.fun bonding curve, so sells go back into the curve instead of a pool. Pool depth is checked after it graduates.'], brief: 'on curve' };
+  }
   const q = liq / 2; // constant-product estimate: quote side is about half the pool's value
   const slip = q > 0 ? (T.sellUsd / (q + T.sellUsd)) * 100 : 100;
   return {

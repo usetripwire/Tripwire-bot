@@ -7,7 +7,7 @@ import fs from 'node:fs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-'));
 Object.assign(process.env, {
-  RPC_URL: 'https://rpc.test', TRIP_MINT: 'TripMint111', RADAR_WATCH_ACCOUNT: 'MigrAcct', RADAR_SCAN_DELAY_SEC: '0', RADAR_MIN_LIQ_USD: '10000', RADAR_PUBLIC_DELAY_MIN: '15', RADAR_STORE_PATH: path.join(tmp, 'radar.json'), SESSION_SECRET: 'test-secret', SITE_URL: 'https://tripwirescan.com',  ALLOWED_ORIGINS: 'https://tripwirescan.com'
+  RPC_URL: 'https://rpc.test', RPC_RPS: '100000', TRIP_MINT: 'TripMint111', RADAR_WATCH_ACCOUNT: 'MigrAcct', RADAR_SCAN_DELAY_SEC: '0', RADAR_MIN_LIQ_USD: '10000', RADAR_PUBLIC_DELAY_MIN: '15', RADAR_STORE_PATH: path.join(tmp, 'radar.json'), SESSION_SECRET: 'test-secret', SITE_URL: 'https://tripwirescan.com',  ALLOWED_ORIGINS: 'https://tripwirescan.com'
 });
 
 /* ---------- fixture world ---------- */
@@ -129,6 +129,7 @@ globalThis.fetch = async (url, init = {}) => {
   if (url.startsWith('http://127.0.0.1')) return realFetch(url, init);
   if (url === 'https://rpc.test') {
     const body = JSON.parse(init.body);
+    if (Array.isArray(body) && globalThis.rejectBatch) return json({ jsonrpc: '2.0', id: null, error: { code: -32403, message: 'Batch requests are only available for paid plans' } }, 403);
     if (Array.isArray(body)) return json(body.map(b => ({ jsonrpc: '2.0', id: b.id, result: rpcAnswer(b) })));
     return json({ jsonrpc: '2.0', id: body.id, result: rpcAnswer(body) });
   }
@@ -275,6 +276,20 @@ await test('Radar API: sign in over HTTP and get the live feed', async () => {
   const forged = await (await fetch(`${base}/api/radar/feed`, { headers: { authorization: 'Bearer ' + s.token.slice(0, -2) + 'xx' } })).json();
   assert.equal(forged.mode, 'preview');
   server.close();
+});
+
+
+await test('Bonding-curve coin: Exit shows n/a instead of a false trip', async () => {
+  const { exitWire } = await import('./wires.js');
+  const c = exitWire([{ dexId: 'pumpfun', liquidity: {} }]);
+  assert.equal(c.na, true); assert.equal(c.tripped, false); assert.match(c.items[0], /bonding curve/);
+});
+await test('Free-plan RPC that rejects batches: falls back to single requests', async () => {
+  const { rpcBatch } = await import('./rpc.js');
+  globalThis.rejectBatch = true;
+  const r = await rpcBatch([['getAccountInfo', [MINT, { encoding: 'jsonParsed' }]], ['getTransaction', ['create', {}]]]);
+  globalThis.rejectBatch = false;
+  assert.equal(r[0].value.owner, 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'); assert.equal(r[1].slot, 1000);
 });
 
 for (const [s, n] of results) console.log(s, n);
