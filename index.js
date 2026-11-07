@@ -1,6 +1,5 @@
 import { cfg } from './config.js';
 import { startServer } from './server.js';
-import { startBot } from './bot.js';
 import { log } from './util.js';
 
 if (cfg.rpcUrl.includes('api.mainnet-beta.solana.com')) {
@@ -9,8 +8,3 @@ if (cfg.rpcUrl.includes('api.mainnet-beta.solana.com')) {
 if (!cfg.allowedOrigins.length) log('WARNING: ALLOWED_ORIGINS is empty, so any website can call this API. Set it to your domain.');
 
 startServer();
-if (cfg.enableBot) {
-  startBot().catch(e => { log('bot stopped:', e.message); process.exit(1); });
-} else {
-  log('X bot disabled (set ENABLE_BOT=true to run it).');
-}

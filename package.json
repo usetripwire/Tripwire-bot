@@ -1,7 +1,7 @@
 {
   "name": "tripwire-bot",
   "version": "1.0.0",
-  "description": "Tripwire scan engine, website API and @TripwireScan X bot",
+  "description": "Tripwire scan engine and website API",
   "type": "module",
   "private": true,
   "engines": { "node": ">=20" },

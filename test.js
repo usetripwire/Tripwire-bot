@@ -1,4 +1,4 @@
-// End-to-end test with a simulated Solana + DexScreener + X world. No network needed.
+// End-to-end test with a simulated Solana + DexScreener world. No network needed.
 // Every address and number here is a test fixture, not real data.
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -7,9 +7,7 @@ import fs from 'node:fs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-'));
 Object.assign(process.env, {
-  RPC_URL: 'https://rpc.test', SITE_URL: 'https://tripwirescan.com', DRY_RUN: 'false',
-  X_API_KEY: 'k', X_API_SECRET: 's', X_ACCESS_TOKEN: 't', X_ACCESS_SECRET: 'ts', X_API_BASE: 'https://api.x.test',
-  STATE_PATH: path.join(tmp, 'state.json'), ALLOWED_ORIGINS: 'https://tripwirescan.com', REPLY_LINK: 'true'
+  RPC_URL: 'https://rpc.test', SITE_URL: 'https://tripwirescan.com',  ALLOWED_ORIGINS: 'https://tripwirescan.com'
 });
 
 /* ---------- fixture world ---------- */
@@ -93,7 +91,6 @@ const programOwned = { [POOL]: 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA', [L
 
 /* ---------- mock fetch ---------- */
 const realFetch = globalThis.fetch;
-const posted = [];
 let rpcCalls = 0;
 function rpcAnswer({ method, params }) {
   rpcCalls++;
@@ -137,8 +134,6 @@ globalThis.fetch = async (url, init = {}) => {
     const mints = url.split('/').pop().split(',');
     return json(mints.filter(m => oldLiq[m]).map(m => ({ chainId: 'solana', baseToken: { address: m }, liquidity: { usd: oldLiq[m] } })));
   }
-  if (url.startsWith('https://api.x.test/2/users/me')) return json({ data: { id: '999', username: 'TripwireScan' } });
-  if (url.startsWith('https://api.x.test/2/tweets')) { posted.push(JSON.parse(init.body)); return json({ data: { id: 'reply' + posted.length } }); }
   throw new Error('unmocked fetch ' + url);
 };
 
@@ -148,20 +143,9 @@ const test = async (name, fn) => {
   try { await fn(); results.push(['PASS', name]); } catch (e) { results.push(['FAIL', name + ' -> ' + e.message]); }
 };
 
-const { oauthHeader } = await import('./x.js');
 const { parseTrades } = await import('./chain.js');
 const { scan } = await import('./scan.js');
-const { replyText, xLength } = await import('./format.js');
-const { interpret, handleMention, loadState } = await import('./bot.js');
 const { createServer } = await import('./server.js');
-
-await test('OAuth 1.0a signature matches X\'s published example', () => {
-  const h = oauthHeader('POST', 'https://api.twitter.com/1.1/statuses/update.json?include_entities=true',
-    { status: 'Hello Ladies + Gentlemen, a signed OAuth request!' },
-    { apiKey: 'xvz1evFS4wEEPTGEFPHBog', apiSecret: 'kAcSOqF21Fu85e7zjz7ZN2U4ZRhfV3WpwPAoE3Z7kBw', accessToken: '370773112-GmHxMAgYyLbNEtIKZeRNFsMKPR9EyMZeS9weJAEb', accessSecret: 'LswwdoUaIvS8ltyTt5jkRh4J50vUPVVHtR2YPi5kE' },
-    'kYjzVBB8Y0ZFabxSWbWovY3uYSQ2pTgmZeNu2VS4cg', '1318622958');
-  assert.match(h, /oauth_signature="hCtSmYh%2BiHYCEqBWrE7C7hYmtUk%3D"/);
-});
 
 await test('trade parser ignores the pool and finds the signer', () => {
   const t = parseTrades(txs.get('bundle0'), MINT);
@@ -191,43 +175,6 @@ await test('Holders excludes pool + locker (top 10 = 21.5%)', () => {
 });
 await test('Second scan is served from cache (no new RPC calls)', async () => { const before = rpcCalls; await scan(MINT); assert.equal(rpcCalls, before); });
 
-let reply;
-await test('Reply fits in 280 characters', () => { reply = replyText(result); assert.ok(xLength(reply) <= 280, String(xLength(reply))); assert.match(reply, /TRIPPED 4 of 8/); assert.match(reply, /tripwirescan\.com\/\?ca=/); });
-
-const ctx = { botId: '999', botUsername: 'TripwireScan' };
-await test('Bot: CA in the post -> scan', () => assert.equal(interpret({ text: '@TripwireScan ' + MINT }, {}, '999', 'TripwireScan').action, 'scan'));
-await test('Bot: tagged under a post with a CA -> scans the parent', () => {
-  const r = interpret({ text: '@alice @TripwireScan', referenced_tweets: [{ type: 'replied_to', id: 'p1' }] }, { tweets: [{ id: 'p1', author_id: '5', text: 'aping ' + MINT }] }, '999', 'TripwireScan');
-  assert.equal(r.action, 'scan'); assert.equal(r.mints[0], MINT);
-});
-await test('Bot: CA inside a dexscreener link -> scan', () => assert.equal(interpret({ text: '@TripwireScan look', entities: { urls: [{ expanded_url: 'https://dexscreener.com/solana/' + MINT }] } }, {}, '999', 'TripwireScan').action, 'scan'));
-await test('Bot: chit-chat under its own reply -> ignored', () => {
-  const r = interpret({ text: '@TripwireScan @bob lol thanks', in_reply_to_user_id: '999', referenced_tweets: [{ type: 'replied_to', id: 'b1' }] }, { tweets: [{ id: 'b1', author_id: '999', text: '$TEST: TRIPPED ' + MINT }] }, '999', 'TripwireScan');
-  assert.equal(r.action, 'ignore');
-});
-await test('Bot: watch command -> Phase 2 notice', () => assert.equal(interpret({ text: '@TripwireScan watch ' + MINT }, {}, '999', 'TripwireScan').action, 'watch'));
-
-await test('Bot posts the scan as a reply to the mention', async () => {
-  const state = loadState();
-  await handleMention({ id: '100', author_id: '42', text: '@TripwireScan ' + MINT }, {}, ctx, state);
-  assert.equal(posted.length, 1); assert.equal(posted[0].reply.in_reply_to_tweet_id, '100'); assert.match(posted[0].text, /TRIPPED/);
-});
-await test('Bot never answers the same mention twice', async () => {
-  const state = loadState(); state.processed.push('100');
-  await handleMention({ id: '100', author_id: '42', text: '@TripwireScan ' + MINT }, {}, ctx, state);
-  assert.equal(posted.length, 1);
-});
-await test('Bot rate-limits one user to 5 scans an hour', async () => {
-  const state = loadState(); const n = posted.length;
-  for (let i = 0; i < 7; i++) await handleMention({ id: 'r' + i, author_id: '77', text: '@TripwireScan ' + MINT }, {}, ctx, state);
-  assert.equal(posted.length - n, 5);
-});
-await test('Bot replies "not a mint" for a wallet address', async () => {
-  const state = loadState(); const n = posted.length;
-  await handleMention({ id: '200', author_id: '43', text: '@TripwireScan 9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM' }, {}, ctx, state);
-  assert.equal(posted.length - n, 1); assert.match(posted[posted.length - 1].text, /isn't a Solana token mint/);
-});
-
 await test('API returns the full scan with CORS for the site', async () => {
   const server = createServer();
   await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -241,7 +188,6 @@ await test('API returns the full scan with CORS for the site', async () => {
   server.close();
 });
 
-console.log('\nSample X reply:\n' + reply + `\n(${xLength(reply)} of 280 characters)\n`);
 for (const [s, n] of results) console.log(s, n);
 const failed = results.filter(r => r[0] === 'FAIL').length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);

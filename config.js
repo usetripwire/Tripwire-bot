@@ -27,23 +27,8 @@ export const cfg = {
   port: num('PORT', 8080),
   allowedOrigins: env('ALLOWED_ORIGINS', '').split(',').map(s => s.trim()).filter(Boolean),
 
-  enableBot: bool('ENABLE_BOT', false),
-  dryRun: bool('DRY_RUN', true),          // true = log replies instead of posting
-  replyBacklog: bool('REPLY_BACKLOG', false),
-  // X charges far more for posts containing a link, so replies are link-free unless REPLY_LINK=true
-  replyLink: bool('REPLY_LINK', false),
-  pollSeconds: num('POLL_SECONDS', 20),
-  statePath: path.resolve(root, env('STATE_PATH', './data/state.json')),
-  x: {
-    apiKey: env('X_API_KEY', ''),
-    apiSecret: env('X_API_SECRET', ''),
-    accessToken: env('X_ACCESS_TOKEN', ''),
-    accessSecret: env('X_ACCESS_SECRET', ''),
-    apiBase: env('X_API_BASE', 'https://api.x.com')
-  },
 
   limits: {
-    scansPerUserPerHour: num('SCANS_PER_USER_PER_HOUR', 5),
     apiPerIpPerMinute: num('API_PER_IP_PER_MINUTE', 6),
     concurrentScans: num('CONCURRENT_SCANS', 3)
   },
