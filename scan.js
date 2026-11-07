@@ -159,8 +159,8 @@ async function runScan(mint) {
   return {
     mint,
     token: {
-      name: (pair && pair.baseToken.name) || 'Unknown token',
-      symbol: (pair && pair.baseToken.symbol) || '',
+      name: ((pair && pair.baseToken.name) || '').replace(/\s+/g, ' ').trim() || 'Unknown token',
+      symbol: ((pair && pair.baseToken.symbol) || '').replace(/\s+/g, ' ').trim(),
       image: pair && pair.info && /^https:\/\//.test(pair.info.imageUrl || '') ? pair.info.imageUrl : ''
     },
     checks,
