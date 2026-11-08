@@ -49,6 +49,8 @@ async function pickTokens(n) {
   const only = (process.env.SELFTEST_OLD_LIST || '').split(',').map(x => x.trim().toUpperCase()).filter(Boolean);
   const old = (only.length ? OLD.filter(([sym]) => only.includes(sym)) : [...OLD].sort(() => Math.random() - 0.5)).slice(0, oldN);
   for (const [sym, m] of old) if (!picked.some(x => x.mint === m)) picked.push({ mint: m, from: 'old ' + sym });
+  // SELFTEST_MINTS=mint1,mint2 adds specific coins (e.g. one a user reported)
+  for (const m of (process.env.SELFTEST_MINTS || '').split(',').map(x => x.trim()).filter(Boolean)) if (!picked.some(x => x.mint === m)) picked.unshift({ mint: m, from: 'requested' });
   return picked;
 }
 
