@@ -31,8 +31,8 @@ export const cfg = {
   limits: {
     apiPerIpPerMinute: num('API_PER_IP_PER_MINUTE', 6),
     feedPerIpPerMinute: num('FEED_PER_IP_PER_MINUTE', 30),
-    concurrentScans: num('CONCURRENT_SCANS', 3),
-    maxQueuedScans: num('MAX_QUEUED_SCANS', 6) // more waiting than this -> 'busy' at once (site shows Quick Scan)
+    concurrentScans: num('CONCURRENT_SCANS', 2),
+    maxQueuedScans: num('MAX_QUEUED_SCANS', 2) // more waiting than this -> 'busy' at once (site shows Quick Scan)
   },
 
   // How much on-chain history each scan reads. Higher = more accurate, more RPC credits.
