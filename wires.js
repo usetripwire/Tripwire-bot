@@ -57,6 +57,8 @@ export function holdersWire(largest, owners, kinds, supply, poolSet, { establish
 }
 
 /* ---------------- Exit ---------------- */
+const mcapOf = p => p.marketCap || p.fdv || 0;
+
 export function exitWire(pairs) {
   if (!pairs.length) return { key: 'exit', name: 'Exit', tripped: true, items: ['No trading pool found on DexScreener. You may not be able to sell.'], brief: 'no pool' };
   const p = pairs[0];
@@ -71,6 +73,7 @@ export function exitWire(pairs) {
   return {
     key: 'exit', name: 'Exit', tripped: liq < T.minLiqUsd || slip > T.maxSlip,
     items: [`Deepest pool: ${usd(liq)} liquidity on ${p.dexId || 'a DEX'}.`, `Selling ${usd(T.sellUsd)} would move the price ${slip < 0.1 ? 'less than 0.1%' : 'about ' + pct(slip)} (estimate).`,
+      mcapOf(p) > 0 && liq >= mcapOf(p) * 0.6 && !p._suspect ? `Liquidity is close to the market cap (${usd(mcapOf(p))}) because the pool holds about ${pct(Math.min(100, (liq / 2 / mcapOf(p)) * 100), 0)} of the supply. That usually happens after heavy selling.` : null,
       p._suspect ? 'This pool reports more liquidity than the whole coin is worth, so treat this figure with caution.'
         : suspect ? `Ignored a ${suspect.dexId || 'DEX'} pool claiming ${usd(suspect.liquidity.usd)} of liquidity, more than the whole coin is worth (bad data or a fake pool).` : null].filter(Boolean),
     brief: `${usd(liq)} liq`
@@ -145,8 +148,12 @@ export function launchWires({ launch, funders, holdings, supply, history, now })
     ];
     if (devFunded) items.push(`${devFunded} of them were funded directly by the deployer.`);
     const major = bundleBought >= T.bundleMajor;
-    if (major) items.push(bundleHeld < 1 ? 'A bundle that grabbed over half the supply at launch, then sold out, is a classic pump-and-dump pattern.' : 'A bundle holding this much can move the price whenever it wants.');
-    bundleWire = { key: 'bundle', name: 'Bundle', tripped: major || bundleHeld >= T.bundleHeld || (bundleBought >= T.bundleBought && bundleHeld >= T.bundleHeld / 2), items, brief: major ? `grabbed ${pct(bundleBought, 0)}` : `holds ${pct(bundleHeld, 0)}` };
+    // A big linked group that has already sold (nearly) everything dumped on later buyers
+    const dumped = bundleBought >= T.bundleDumped && bundleHeld <= bundleBought * 0.1;
+    if (major || dumped) items.push(bundleHeld < 1
+      ? `A linked group that took ${pct(bundleBought, 0)} of supply at launch and then sold out is a classic pump-and-dump pattern.`
+      : 'A bundle holding this much can move the price whenever it wants.');
+    bundleWire = { key: 'bundle', name: 'Bundle', tripped: major || dumped || bundleHeld >= T.bundleHeld || (bundleBought >= T.bundleBought && bundleHeld >= T.bundleHeld / 2), items, brief: major || dumped ? `grabbed ${pct(bundleBought, 0)}` : `holds ${pct(bundleHeld, 0)}` };
   }
 
   // Sniper: outside wallets that bought within the first few blocks

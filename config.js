@@ -78,6 +78,7 @@ export const cfg = {
     bundleHeld: num('T_BUNDLE_HELD', 10),
     bundleBought: num('T_BUNDLE_BOUGHT', 25),
     bundleMajor: num('T_BUNDLE_MAJOR', 50),           // a bundle that bought this much at launch trips even after selling
+    bundleDumped: num('T_BUNDLE_DUMPED', 35),         // a bundle that bought this much and has sold 90%+ trips (dumped on buyers)
     sniperHeld: num('T_SNIPER_HELD', 10),
     devHeld: num('T_DEV_HELD', 10),
     devMinLaunches: num('T_DEV_MIN_LAUNCHES', 3),

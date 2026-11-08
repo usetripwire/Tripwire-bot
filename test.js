@@ -515,6 +515,17 @@ await test('Holder gate: new buyer gets in within a minute; busy RPC keeps a hol
   try { assert.equal((await holderStatus(W2)).holder, true); } finally { Date.now = realNow; globalThis.fetch = realFetch2; }
 });
 
+await test('p402 case: 44.5% bundle that sold out trips; liquidity near market cap is explained', async () => {
+  const { launchWires, exitWire } = await import('./wires.js');
+  const trades = [];
+  for (let i = 0; i < 8; i++) trades.push({ wallet: 'BW' + i, side: 'buy', amount: 5.5625e13, slot: 5, time: 1, sig: 'b' + i });
+  trades.push({ wallet: 'D', side: 'buy', amount: 2.5e13, slot: 5, time: 1, sig: 'd' });
+  const r = launchWires({ launch: { deployer: 'D', creationSlot: 5, creationTime: 1, trades }, funders: new Map(), holdings: new Map(), supply: 1e15, history: null, now: 9 });
+  assert.equal(r.bundleWire.tripped, true); assert.ok(r.bundleWire.items.some(x => /pump-and-dump/.test(x)));
+  const e = exitWire([{ dexId: 'pumpswap', liquidity: { usd: 7230 }, marketCap: 7480 }]);
+  assert.ok(e.items.some(x => /close to the market cap/.test(x) && /48%/.test(x)));
+});
+
 for (const [s, n] of results) console.log(s, n);
 const failed = results.filter(r => r[0] === 'FAIL').length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);
