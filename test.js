@@ -485,6 +485,18 @@ await test('Pool claiming more liquidity than the market cap is not trusted', as
   assert.equal(stale[0].pairAddress, 'MAIN'); assert.ok(!stale[0]._suspect);
 });
 
+await test('Scan queue: limiter reports waiting work, busy error is a 503', async () => {
+  const { createLimiter } = await import('./util.js');
+  const lim = createLimiter(1);
+  let release; const gate = new Promise(r => { release = r; });
+  const a = lim(() => gate), b = lim(() => 1), c = lim(() => 2);
+  assert.equal(lim.active(), 1); assert.equal(lim.waiting(), 2);
+  release(); await Promise.all([a, b, c]);
+  assert.equal(lim.waiting(), 0);
+  const src = fs.readFileSync(new URL('./server.js', import.meta.url), 'utf8');
+  assert.match(src, /busy: 503/);
+});
+
 for (const [s, n] of results) console.log(s, n);
 const failed = results.filter(r => r[0] === 'FAIL').length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);

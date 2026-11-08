@@ -94,7 +94,7 @@ export async function processQueue(now = Date.now()) {
       if (liq < R.minLiqUsd) { stats.skipped++; continue; }
       log(`Radar scanning ${q.mint} (liq $${Math.round(liq)})`);
       scanTimes.push(now);
-      const r = await scan(q.mint);
+      const r = await scan(q.mint, { background: true });
       store.entries.unshift(toEntry(r, q));
       store.entries = store.entries.slice(0, R.keep);
       stats.scanned++;

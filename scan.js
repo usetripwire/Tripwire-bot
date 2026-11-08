@@ -12,11 +12,17 @@ const scanLimit = createLimiter(cfg.limits.concurrentScans);
 
 const na = (key, name, why) => ({ key, name, na: true, tripped: false, items: [why], brief: 'n/a' });
 
-export function scan(mint) {
+export const scanLoad = () => ({ active: scanLimit.active(), waiting: scanLimit.waiting(), cached: cache.map.size });
+
+export function scan(mint, { background = false } = {}) {
   if (!B58.test(mint || '')) return Promise.reject(new ScanError('invalid', 'That is not a Solana address.'));
   const hit = cache.get(mint);
   if (hit) return Promise.resolve(hit);
   if (inflight.has(mint)) return inflight.get(mint);
+  // Under a rush, say so at once instead of making people wait minutes in line
+  if (!background && scanLimit.waiting() >= cfg.limits.maxQueuedScans) {
+    return Promise.reject(new ScanError('busy', 'Full scans are busy right now. Showing a quick scan; try the full scan again in a minute.'));
+  }
   const p = scanLimit(() => runScan(mint)).then(r => { cache.set(mint, r); return r; }).finally(() => inflight.delete(mint));
   inflight.set(mint, p);
   return p;

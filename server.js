@@ -6,7 +6,8 @@
 //   POST /api/radar/session         { wallet, nonce, signature }
 import http from 'node:http';
 import { cfg } from './config.js';
-import { scan } from './scan.js';
+import { scan, scanLoad } from './scan.js';
+import { stats as rpcStats } from './rpc.js';
 import { feed, radarInfo } from './radar.js';
 import { issueNonce, createSession, readSession, holderStatus } from './auth.js';
 import { log } from './util.js';
@@ -38,7 +39,7 @@ function readJson(req, limit = 8192) {
   });
 }
 
-const ERR = { invalid: 400, not_mint: 422, rpc: 503, expired: 401, bad_signature: 401 };
+const ERR = { invalid: 400, not_mint: 422, rpc: 503, busy: 503, expired: 401, bad_signature: 401 };
 
 export function createServer() {
   return http.createServer(async (req, res) => {
@@ -60,7 +61,7 @@ export function createServer() {
     const limited = () => send(429, { error: 'rate_limited', message: 'Too many requests. Wait a minute and try again.' }, { 'retry-after': '60' });
 
     try {
-      if (url.pathname === '/health') return send(200, { ok: true });
+      if (url.pathname === '/health') return send(200, { ok: true, scans: scanLoad(), rpc: { calls: rpcStats.calls, throttled: rpcStats.throttled, itemErrors: rpcStats.itemErrors } });
 
       if (url.pathname === '/api/scan' && req.method === 'GET') {
         if (!allow(ip, 'scan', cfg.limits.apiPerIpPerMinute)) return limited();

@@ -52,23 +52,29 @@ async function pickTokens(n) {
   return picked;
 }
 
+async function scanOne(t, i, total, summary) {
+  const callsBefore = stats.calls;
+  try {
+    const r = await scan(t.mint, { background: true });
+    const ran = r.checks.filter(c => !c.na);
+    log(`SELFTEST ${i + 1}/${total} ${r.token.symbol || '?'} ${t.mint} [${t.from}] dex=${r.pair ? r.pair.dexId : 'none'} liq=${r.pair && r.pair.liquidity ? Math.round(r.pair.liquidity.usd || 0) : 0} took=${(r.tookMs / 1000).toFixed(0)}s calls=${stats.calls - callsBefore} tripped=${ran.filter(c => c.tripped).length}/${ran.length}`);
+    for (const c of r.checks) log(`  ${c.na ? 'N/A ' : c.tripped ? 'TRIP' : 'OK  '} ${c.key}: ${c.items.join(' | ')}`);
+    summary.push(`${r.token.symbol || t.mint.slice(0, 6)}: ${r.checks.filter(c => c.na).map(c => c.key).join(',') || 'all ran'} (${(r.tookMs / 1000).toFixed(0)}s)`);
+  } catch (e) {
+    log(`SELFTEST ${i + 1}/${total} ${t.mint} [${t.from}] ERROR ${e.code || ''} ${e.message}`);
+    summary.push(`${t.mint.slice(0, 6)}: error ${e.message}`);
+  }
+}
+
+// SELFTEST_PARALLEL=n scans n coins at the same moment, like a rush of visitors.
 export async function runSelfTest(n) {
   const tokens = await pickTokens(n);
-  log(`SELFTEST start: ${tokens.length} tokens`);
+  const par = Math.max(1, Number(process.env.SELFTEST_PARALLEL || 1));
+  log(`SELFTEST start: ${tokens.length} tokens, ${par} at a time`);
   const summary = [];
-  for (const [i, t] of tokens.entries()) {
-    const callsBefore = stats.calls;
-    try {
-      const r = await scan(t.mint);
-      const ran = r.checks.filter(c => !c.na);
-      const head = `SELFTEST ${i + 1}/${tokens.length} ${r.token.symbol || '?'} ${t.mint} [${t.from}] dex=${r.pair ? r.pair.dexId : 'none'} liq=${r.pair && r.pair.liquidity ? Math.round(r.pair.liquidity.usd || 0) : 0} took=${(r.tookMs / 1000).toFixed(0)}s calls=${stats.calls - callsBefore} tripped=${ran.filter(c => c.tripped).length}/${ran.length}`;
-      log(head);
-      for (const c of r.checks) log(`  ${c.na ? 'N/A ' : c.tripped ? 'TRIP' : 'OK  '} ${c.key}: ${c.items.join(' | ')}`);
-      summary.push(`${r.token.symbol || t.mint.slice(0, 6)}: ${r.checks.filter(c => c.na).map(c => c.key).join(',') || 'all ran'}`);
-    } catch (e) {
-      log(`SELFTEST ${i + 1}/${tokens.length} ${t.mint} [${t.from}] ERROR ${e.code || ''} ${e.message}`);
-      summary.push(`${t.mint.slice(0, 6)}: error ${e.message}`);
-    }
+  const t0 = Date.now(), th0 = stats.throttled;
+  for (let i = 0; i < tokens.length; i += par) {
+    await Promise.all(tokens.slice(i, i + par).map((t, j) => scanOne(t, i + j, tokens.length, summary)));
   }
-  log('SELFTEST done. n/a by token -> ' + summary.join(' ; '));
+  log(`SELFTEST done in ${((Date.now() - t0) / 1000).toFixed(0)}s, throttled ${stats.throttled - th0}. n/a by token -> ` + summary.join(' ; '));
 }

@@ -13,7 +13,10 @@ export function createLimiter(n) {
     const { fn, resolve, reject } = queue.shift();
     Promise.resolve().then(fn).then(resolve, reject).finally(() => { active--; next(); });
   };
-  return fn => new Promise((resolve, reject) => { queue.push({ fn, resolve, reject }); next(); });
+  const run = fn => new Promise((resolve, reject) => { queue.push({ fn, resolve, reject }); next(); });
+  run.waiting = () => queue.length;
+  run.active = () => active;
+  return run;
 }
 
 // Small in-memory cache with expiry and a size cap.
