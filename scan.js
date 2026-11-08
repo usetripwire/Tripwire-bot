@@ -1,8 +1,10 @@
 // Full scan: runs every wire for one mint and returns a JSON-friendly result.
 import { cfg } from './config.js';
 import { rpc, rpcBatch, sigsFor, getTxs, stats } from './rpc.js';
-import { pairsFor, liquidityFor } from './dex.js';
-import { TOKEN_PROGRAM, TOKEN_2022, reconstructLaunch, fundersFor, holdingsOf, launchesBy, ownerKinds, parseTrades } from './chain.js';
+import { pairsFor, liquidityFor, DUST_LIQ_USD } from './dex.js';
+import { findPda } from './pda.js';
+import { b58decode } from './auth.js';
+import { PUMP_PROGRAM, TOKEN_PROGRAM, TOKEN_2022, reconstructLaunch, fundersFor, holdingsOf, launchesBy, ownerKinds, parseTrades } from './chain.js';
 import { authorityWire, holdersWire, exitWire, launchWires, flowWires } from './wires.js';
 import { TTLCache, ScanError, B58, createLimiter, log } from './util.js';
 
@@ -55,7 +57,7 @@ async function runScan(mint) {
 
   // Basics
   const authority = authorityWire(acc);
-  const exit = pairs ? exitWire(pairs) : na('exit', 'Exit', 'DexScreener did not respond, so pool depth could not be checked.');
+  let exit = pairs ? exitWire(pairs) : na('exit', 'Exit', 'DexScreener did not respond, so pool depth could not be checked.');
   let holders = na('holders', 'Holders', 'The RPC refused the holder lookup. Try again shortly.');
   if (largestR.status === 'rejected') log('holders lookup failed', mint, largestR.reason && largestR.reason.message);
   if (largestR.status === 'fulfilled' && largestR.value && largestR.value.value) {
@@ -66,6 +68,13 @@ async function runScan(mint) {
       const kinds = await ownerKinds(owners);
       holders = holdersWire(largest, owners, kinds, supply, poolSet, { established });
     } catch (e) { log('holders failed', mint, e.message); }
+  }
+
+  // Still on pump.fun's bonding curve but DexScreener only lists a dust side pool: the curve is the market
+  const curvePda = findPda([Buffer.from('bonding-curve'), b58decode(mint)], PUMP_PROGRAM);
+  const onCurve = !!(holders.rows && holders.rows.some(r => r.owner === curvePda && r.share >= 0.5)) && liqUsd < DUST_LIQ_USD;
+  if (onCurve) {
+    exit = { key: 'exit', name: 'Exit', na: true, tripped: false, items: ['Still on the pump.fun bonding curve, which doesn\'t report pool liquidity, so sells go back into the curve. Pool depth is checked after it graduates.'], brief: 'on curve' };
   }
 
   // Launch wires and flow wires run in parallel
@@ -174,7 +183,8 @@ async function runScan(mint) {
     checks,
     pair: pair ? {
       dexId: pair.dexId, url: pair.url, priceUsd: pair.priceUsd, marketCap: pair.marketCap, fdv: pair.fdv,
-      liquidity: pair.liquidity, volume: pair.volume, txns: pair.txns, pairCreatedAt: pair.pairCreatedAt
+      liquidity: onCurve ? { usd: 0 } : pair.liquidity, volume: pair.volume, txns: pair.txns, pairCreatedAt: pair.pairCreatedAt,
+      onCurve: onCurve || (!((pair.liquidity || {}).usd) && /pump|dbc|curve|launch/i.test(pair.dexId || ''))
     } : null,
     generatedAt: new Date().toISOString(),
     tookMs: Date.now() - started,

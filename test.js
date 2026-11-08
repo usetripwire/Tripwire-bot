@@ -526,6 +526,27 @@ await test('p402 case: 44.5% bundle that sold out trips; liquidity near market c
   assert.ok(e.items.some(x => /close to the market cap/.test(x) && /48%/.test(x)));
 });
 
+await test('Dust pool never stands in for the coin (reported $1.51 pool next to a bonding curve)', async () => {
+  const { rankPairs } = await import('./dex.js');
+  const { exitWire } = await import('./wires.js');
+  const curve = { dexId: 'pumpfun', pairAddress: 'CURVE', liquidity: undefined, volume: { h24: 231000 }, marketCap: 11610 };
+  const dust = { dexId: 'raydium', pairAddress: 'DUST', liquidity: { usd: 1.51 }, volume: { h24: 0.31 }, marketCap: 11610 };
+  const real = { dexId: 'pumpswap', pairAddress: 'REAL', liquidity: { usd: 9000 }, volume: { h24: 50000 }, marketCap: 30000 };
+  // Curve beats dust, whatever order DexScreener returns them in
+  for (const order of [[dust, curve], [curve, dust]]) {
+    const r = rankPairs(order.map(x => ({ ...x })));
+    assert.equal(r[0].pairAddress, 'CURVE');
+    const e = exitWire(r);
+    assert.equal(e.na, true); assert.equal(e.tripped, false);
+  }
+  // A real pool beats both
+  assert.equal(rankPairs([{ ...dust }, { ...curve }, { ...real }])[0].pairAddress, 'REAL');
+  // Dust as the only market: trips, and says why
+  const only = exitWire(rankPairs([{ ...dust }]));
+  assert.equal(only.tripped, true); assert.ok(only.items.some(x => /dust/.test(x)));
+  assert.ok(!only.items.some(x => /close to the market cap/.test(x)));
+});
+
 for (const [s, n] of results) console.log(s, n);
 const failed = results.filter(r => r[0] === 'FAIL').length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);

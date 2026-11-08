@@ -73,7 +73,8 @@ export function exitWire(pairs) {
   return {
     key: 'exit', name: 'Exit', tripped: liq < T.minLiqUsd || slip > T.maxSlip,
     items: [`Deepest pool: ${usd(liq)} liquidity on ${p.dexId || 'a DEX'}.`, `Selling ${usd(T.sellUsd)} would move the price ${slip < 0.1 ? 'less than 0.1%' : 'about ' + pct(slip)} (estimate).`,
-      mcapOf(p) > 0 && liq >= mcapOf(p) * 0.6 && !p._suspect ? `Liquidity is close to the market cap (${usd(mcapOf(p))}) because the pool holds about ${pct(Math.min(100, (liq / 2 / mcapOf(p)) * 100), 0)} of the supply. That usually happens after heavy selling.` : null,
+      liq < 500 ? `That is dust: a pool this small is usually a spam side pair, and no deeper pool or launch curve was found. Selling any real amount here is not possible.` : null,
+      mcapOf(p) > 0 && liq >= mcapOf(p) * 0.6 && !p._suspect && liq >= 500 ? `Liquidity is close to the market cap (${usd(mcapOf(p))}) because the pool holds about ${pct(Math.min(100, (liq / 2 / mcapOf(p)) * 100), 0)} of the supply. That usually happens after heavy selling.` : null,
       p._suspect ? 'This pool reports more liquidity than the whole coin is worth, so treat this figure with caution.'
         : suspect ? `Ignored a ${suspect.dexId || 'DEX'} pool claiming ${usd(suspect.liquidity.usd)} of liquidity, more than the whole coin is worth (bad data or a fake pool).` : null].filter(Boolean),
     brief: `${usd(liq)} liq`

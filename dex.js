@@ -20,12 +20,18 @@ export async function pairsFor(mint) {
 // Deepest pool first, but never trust a pool that claims more liquidity than it could hold by its own
 // price (a pool is two sides, so at most about 2x the market cap). That is bad indexer data or a fake
 // pool set up to look safe.
+export const DUST_LIQ_USD = 500;
+
 export function rankPairs(pairs) {
   const mc = p => p.marketCap || p.fdv || 0;
+  const vol = p => (p.volume && p.volume.h24) || 0;
   for (const p of pairs) { const own = mc(p); p._suspect = pairs.length > 1 && own > 0 && liq(p) > own * 2.05; }
   const bad = pairs.filter(p => p._suspect);
   if (bad.length) log('ignored pools', JSON.stringify(bad.map(p => ({ dex: p.dexId, pool: p.pairAddress, liq: liq(p), mcap: mc(p), quote: p.quoteToken && p.quoteToken.symbol }))));
-  return pairs.sort((a, b) => (a._suspect - b._suspect) || (liq(b) - liq(a)));
+  // Tiers: real pools, then launch curves (no liquidity reported), then dust pools (a few dollars,
+  // often spam pairs), then pools we don't trust. A $2 side pool must never stand in for the coin's market.
+  const tier = p => (p._suspect ? 3 : liq(p) >= DUST_LIQ_USD ? 0 : liq(p) > 0 ? 2 : 1);
+  return pairs.sort((a, b) => (tier(a) - tier(b)) || (tier(a) === 0 ? liq(b) - liq(a) : vol(b) - vol(a)));
 }
 
 
