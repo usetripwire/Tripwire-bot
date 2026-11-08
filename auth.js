@@ -51,16 +51,28 @@ export function issueNonce(wallet) {
   return { nonce, message };
 }
 
+const lastKnown = new Map(); // wallet -> last balance we read, used if the RPC is busy
+const zeroAt = new Map();    // wallet -> when we last saw a balance below the gate (rechecked after 1 min)
+
 export async function tripBalance(wallet) {
   if (!cfg.radar.tripMint) return 0;
   const hit = balances.get(wallet);
-  if (hit !== undefined) return hit;
-  const r = await rpc('getTokenAccountsByOwner', [wallet, { mint: cfg.radar.tripMint }, { encoding: 'jsonParsed' }]);
-  const bal = ((r && r.value) || []).reduce((s, a) => {
-    const t = a.account.data.parsed.info.tokenAmount;
-    return s + Number(t.uiAmountString != null ? t.uiAmountString : t.uiAmount || 0);
-  }, 0);
-  return balances.set(wallet, bal);
+  // A wallet below the gate is rechecked after a minute, so someone who just bought gets in quickly
+  if (hit !== undefined && !(hit < cfg.radar.minHold && Date.now() - (zeroAt.get(wallet) || 0) > 60e3)) return hit;
+  try {
+    const r = await rpc('getTokenAccountsByOwner', [wallet, { mint: cfg.radar.tripMint }, { encoding: 'jsonParsed' }]);
+    const bal = ((r && r.value) || []).reduce((s, a) => {
+      const t = a.account.data.parsed.info.tokenAmount;
+      return s + Number(t.uiAmountString != null ? t.uiAmountString : t.uiAmount || 0);
+    }, 0);
+    if (bal < cfg.radar.minHold) zeroAt.set(wallet, Date.now());
+    lastKnown.set(wallet, bal);
+    if (lastKnown.size > 50000) lastKnown.clear();
+    return balances.set(wallet, bal);
+  } catch (e) {
+    if (lastKnown.has(wallet)) return lastKnown.get(wallet); // busy RPC: don't lock a holder out
+    throw e;
+  }
 }
 
 // Holder status for a wallet: real holdings, or a tester listed in RADAR_ALLOW_WALLETS.

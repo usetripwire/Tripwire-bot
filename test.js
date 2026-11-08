@@ -497,6 +497,24 @@ await test('Scan queue: limiter reports waiting work, busy error is a 503', asyn
   assert.match(src, /busy: 503/);
 });
 
+await test('Holder gate: new buyer gets in within a minute; busy RPC keeps a holder in', async () => {
+  const { holderStatus } = await import('./auth.js');
+  const W1 = 'BuyerWa11et1111111111111111111111111111111';
+  tripBal.set(W1, 0);
+  assert.equal((await holderStatus(W1)).holder, false);
+  tripBal.set(W1, 150000); // buys
+  const realNow = Date.now; Date.now = () => realNow() + 61e3;
+  try { assert.equal((await holderStatus(W1)).holder, true); } finally { Date.now = realNow; }
+  // Holder stays in when the RPC errors after the cache entry expires
+  const W2 = 'HolderWa11et111111111111111111111111111111';
+  tripBal.set(W2, 250000);
+  assert.equal((await holderStatus(W2)).holder, true);
+  const realFetch2 = globalThis.fetch;
+  globalThis.fetch = async (url, init) => (String(url) === 'https://rpc.test' ? new Response('boom', { status: 500 }) : realFetch2(url, init));
+  Date.now = () => realNow() + 11 * 60e3;
+  try { assert.equal((await holderStatus(W2)).holder, true); } finally { Date.now = realNow; globalThis.fetch = realFetch2; }
+});
+
 for (const [s, n] of results) console.log(s, n);
 const failed = results.filter(r => r[0] === 'FAIL').length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);
